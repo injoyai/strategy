@@ -2,7 +2,7 @@ package api
 
 type backtestReq struct {
 	Strategy   string  `json:"strategy"`
-	Symbol     string  `json:"symbol"`
+	Code       string  `json:"code"`
 	Start      string  `json:"start"`
 	End        string  `json:"end"`
 	Cash       float64 `json:"cash"`

@@ -1,6 +1,8 @@
 package main
 
 import (
+	"github.com/injoyai/conv/cfg"
+	"github.com/injoyai/frame"
 	"github.com/injoyai/logs"
 	"github.com/injoyai/trategy/internal/api"
 	"github.com/injoyai/trategy/internal/common"
@@ -9,5 +11,6 @@ import (
 func main() {
 	logs.PanicErr(common.Init())
 	common.Data.Start()
-	logs.Err(api.Run())
+	port := cfg.GetInt("port", frame.DefaultPort)
+	logs.Err(api.Run(port))
 }

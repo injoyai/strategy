@@ -2,7 +2,7 @@ package strategy
 
 import "github.com/injoyai/tdx/protocol"
 
-var _ Strategy = (*Test)(nil)
+var _ Interface = (*Test)(nil)
 
 type Test struct{}
 

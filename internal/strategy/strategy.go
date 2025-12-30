@@ -1,22 +1,42 @@
 package strategy
 
 import (
+	"errors"
+
 	"github.com/injoyai/tdx/protocol"
+	"github.com/injoyai/trategy/internal/common"
 )
 
-type Strategy interface {
+type Interface interface {
 	Name() string
 	Signals(ks protocol.Klines) []int
 }
 
-var strategies = map[string]Strategy{}
+var strategies = map[string]Interface{}
 
-func Register(s Strategy) {
+func Register(s Interface) {
 	strategies[s.Name()] = s
 }
 
-func Get(name string) Strategy {
+func RegisterScript(s *Strategy) error {
+	res, err := common.Script.Eval(s.Content())
+	if err != nil {
+		return err
+	}
+	f, ok := res.Interface().(SignalsFunc)
+	if !ok {
+		return errors.New("脚本函数有误")
+	}
+	Register(NewScript(s.Name, f))
+	return nil
+}
+
+func Get(name string) Interface {
 	return strategies[name]
+}
+
+func Del(name string) {
+	delete(strategies, name)
 }
 
 func Registry() []string {
@@ -26,3 +46,5 @@ func Registry() []string {
 	}
 	return out
 }
+
+type SignalsFunc = func(ks protocol.Klines) []int

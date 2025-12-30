@@ -1,45 +1,44 @@
 package api
 
 import (
-	"net/http"
 	"time"
 
 	"github.com/injoyai/frame/fbr"
+	"github.com/injoyai/trategy/internal/backtest"
 	"github.com/injoyai/trategy/internal/common"
-	"github.com/injoyai/trategy/internal/engine"
 	"github.com/injoyai/trategy/internal/screener"
 	"github.com/injoyai/trategy/internal/strategy"
 )
 
-func Run() error {
+func Run(port int) error {
 
 	s := fbr.Default()
-	s.Use(func(c fbr.Ctx) {
-		if c.Method() == http.MethodOptions {
-			c.Succ(nil)
-		}
-		c.Next()
-	})
-	s.Group("/api", func(g fbr.Grouper) {
-		g.GET("/strategies", GetStrategies)
-		g.GET("/codes", GetCodes)
-		g.GET("/klines", GetKlines)
-		g.POST("/screener", GetScreener)
-		g.POST("/backtest", Backtest)
-		g.POST("/backtest_all", BacktestAll)
-		g.GET("/backtest_all/ws", BacktestAllWS)
-	})
-	return s.Run()
-}
+	s.SetPort(port)
 
-// GetStrategies
-// @Summary 获取策略
-// @Description 获取策略
-// @Tags 策略
-// @Success 200 {array} string
-func GetStrategies(c fbr.Ctx) {
-	s := strategy.Registry()
-	c.Succ(s)
+	s.Group("/api", func(g fbr.Grouper) {
+		g.Group("/strategy", func(g fbr.Grouper) {
+			g.GET("/names", GetStrategyNames)
+			g.GET("/all", GetStrategyAll)
+			g.POST("/", PostStrategy)
+			g.PUT("/", PutStrategy)
+			g.PUT("/enable", PutStrategyEnable)
+			g.DELETE("/", DelStrategy)
+		})
+
+		g.Group("/stock", func(g fbr.Grouper) {
+			g.GET("/codes", GetCodes)
+			g.GET("/klines", GetKlines)
+			g.POST("/screener", GetScreener)
+		})
+
+		g.Group("/backtest", func(g fbr.Grouper) {
+			g.POST("/", Backtest)
+			g.GET("/all/ws", BacktestAllWS)
+		})
+
+	})
+
+	return s.Run()
 }
 
 // GetCodes
@@ -114,7 +113,7 @@ func Backtest(c fbr.Ctx) {
 		c.CheckErr(err)
 	}
 
-	ks, err := common.Data.GetDayKlines(req.Symbol, start, end)
+	ks, err := common.Data.GetDayKlines(req.Code, start, end)
 	c.CheckErr(err)
 
 	cash := req.Cash
@@ -131,7 +130,7 @@ func Backtest(c fbr.Ctx) {
 	if req.MinFee <= 0 {
 		req.MinFee = 5
 	}
-	res := engine.RunBacktestAdvanced(ks, strat, engine.Settings{
+	res := backtest.RunBacktestAdvanced(ks, strat, backtest.Settings{
 		Cash:       cash,
 		Size:       size,
 		FeeRate:    req.FeeRate,
@@ -170,7 +169,7 @@ func BacktestAllWS(c fbr.Ctx) {
 		end = time.Now()
 	}
 
-	settings := engine.Settings{
+	settings := backtest.Settings{
 		Cash:       c.GetFloat64("cash", 100000),
 		Size:       c.GetInt("size", 1),
 		FeeRate:    c.GetFloat64("fee_rate", 0.0005),
@@ -192,7 +191,7 @@ func BacktestAllWS(c fbr.Ctx) {
 			if err != nil || len(ks) == 0 {
 				continue
 			}
-			res := engine.RunBacktestAdvanced(ks, strat, settings)
+			res := backtest.RunBacktestAdvanced(ks, strat, settings)
 			item := BacktestItem{
 				Code:        code,
 				Name:        common.Data.Codes.GetName(code),
@@ -264,7 +263,7 @@ func BacktestAll(c fbr.Ctx) {
 		req.MinFee = 5
 	}
 
-	settings := engine.Settings{
+	settings := backtest.Settings{
 		Cash:       cash,
 		Size:       size,
 		FeeRate:    req.FeeRate,
@@ -283,7 +282,7 @@ func BacktestAll(c fbr.Ctx) {
 		if err != nil || len(ks) == 0 {
 			continue
 		}
-		res := engine.RunBacktestAdvanced(ks, strat, settings)
+		res := backtest.RunBacktestAdvanced(ks, strat, settings)
 		item := BacktestItem{
 			Code:        code,
 			Name:        common.Data.Codes.GetName(code),

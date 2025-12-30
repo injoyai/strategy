@@ -1,4 +1,4 @@
-package engine
+package backtest
 
 import (
 	"math"
@@ -54,7 +54,7 @@ type Candle struct {
 	Symbol string
 }
 
-func RunBacktestAdvanced(ks protocol.Klines, strat strategy.Strategy, cfg Settings) Result {
+func RunBacktestAdvanced(ks protocol.Klines, strat strategy.Interface, cfg Settings) Result {
 
 	if len(ks) == 0 {
 		return Result{

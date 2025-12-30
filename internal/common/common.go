@@ -1,12 +1,23 @@
 package common
 
 import (
+	"github.com/injoyai/conv/cfg"
+	"github.com/injoyai/goutil/database/sqlite"
+	"github.com/injoyai/goutil/database/xorms"
+	"github.com/injoyai/logs"
 	"github.com/injoyai/tdx"
 	"github.com/injoyai/trategy/internal/data"
+	"github.com/injoyai/trategy/internal/lib"
+	"github.com/traefik/yaegi/interp"
+	"github.com/traefik/yaegi/stdlib"
 )
 
 var (
 	Data *data.Data
+
+	DB *xorms.Engine
+
+	Script *interp.Interpreter
 )
 
 func Init() error {
@@ -15,5 +26,24 @@ func Init() error {
 		return err
 	}
 	Data, err = data.NewManage(m)
-	return err
+	if err != nil {
+		return err
+	}
+
+	DB, err = sqlite.NewXorm(cfg.GetString("database.filename"))
+	if err != nil {
+		return err
+	}
+
+	Script = interp.New(interp.Options{})
+	err = Script.Use(stdlib.Symbols)
+	if err != nil {
+		logs.Err(err)
+	}
+	err = Script.Use(lib.Symbols)
+	if err != nil {
+		logs.Err(err)
+	}
+
+	return nil
 }
