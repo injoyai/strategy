@@ -21,6 +21,48 @@ export async function getStrategies() {
   return strategies as string[]
 }
 
+export async function getStrategyNames(): Promise<string[]> {
+  const { data } = await api.get('/strategy/names')
+  const body = unwrap(data)
+  const arr = Array.isArray(body) ? body : (body.names || body.list || body.items || [])
+  return arr.map((s: any) => String(s))
+}
+
+export async function getStrategyAll(): Promise<{ name: string, script?: string, enable?: boolean, package?: string }[]> {
+  const { data } = await api.get('/strategy/all')
+  const body = unwrap(data)
+  const arr = Array.isArray(body) ? body : (body.items || body.list || [])
+  return arr.map((it: any) => ({
+    name: String(it.Name ?? it.name ?? ''),
+    script: String(it.Script ?? it.script ?? ''),
+    enable: Boolean(it.Enable ?? it.enable ?? false),
+    package: String(it.Package ?? it.package ?? 'strategy')
+  }))
+}
+
+export async function createStrategy(body: { name: string, script: string, enable?: boolean }) {
+  const payload = { Name: body.name, Script: body.script, Enable: Boolean(body.enable) }
+  const { data } = await api.post('/strategy', payload)
+  unwrap(data)
+}
+
+export async function updateStrategy(body: { name: string, script: string }) {
+  const payload = { Name: body.name, Script: body.script }
+  const { data } = await api.put('/strategy', payload)
+  unwrap(data)
+}
+
+export async function setStrategyEnable(body: { name: string, enable: boolean }) {
+  const payload = { Name: body.name, Enable: body.enable }
+  const { data } = await api.put('/strategy/enable', payload)
+  unwrap(data)
+}
+
+export async function deleteStrategy(name: string) {
+  const { data } = await api.delete('/strategy', { data: { Name: name } })
+  unwrap(data)
+}
+
 export async function getCodes(): Promise<{ code: string, name: string }[]> {
   const { data } = await api.get('/codes')
   const body = unwrap(data)

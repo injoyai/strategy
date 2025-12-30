@@ -48,3 +48,17 @@ func Registry() []string {
 }
 
 type SignalsFunc = func(ks protocol.Klines) []int
+
+const (
+	DefaultScript = `
+import (
+	"github.com/injoyai/tdx/protocol"
+)
+
+func Signals(ks protocol.Klines) []int {
+	out := make([]int, len(ks))
+	return out
+}
+
+`
+)

@@ -1,1 +1,1 @@
-{"root":["./src/main.tsx","./src/components/equitychart.tsx","./src/components/pricechart.tsx","./src/components/returnschart.tsx","./src/lib/api.ts","./src/lib/mock.ts","./src/pages/backtest.tsx","./src/pages/market.tsx","./src/pages/screener.tsx"],"version":"5.9.3"}
+{"root":["./src/main.tsx","./src/components/equitychart.tsx","./src/components/pricechart.tsx","./src/components/returnschart.tsx","./src/lib/api.ts","./src/lib/mock.ts","./src/pages/backtest.tsx","./src/pages/market.tsx","./src/pages/screener.tsx","./src/pages/strategy.tsx"],"version":"5.9.3"}

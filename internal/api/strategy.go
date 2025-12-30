@@ -46,7 +46,7 @@ func PostStrategy(c fbr.Ctx) {
 
 	s := &strategy.Strategy{
 		Name:    req.Name,
-		Script:  req.Script,
+		Script:  strategy.DefaultScript,
 		Enable:  req.Enable,
 		Package: req.Name + conv.String(time.Now().Unix()),
 	}
@@ -61,7 +61,7 @@ func PostStrategy(c fbr.Ctx) {
 		strategy.Del(req.Name)
 	}
 
-	c.Succ(nil)
+	c.Succ(s)
 }
 
 func PutStrategy(c fbr.Ctx) {
@@ -86,7 +86,7 @@ func PutStrategy(c fbr.Ctx) {
 		strategy.Del(req.Name)
 	}
 
-	c.Succ(nil)
+	c.Succ(s)
 }
 
 func PutStrategyEnable(c fbr.Ctx) {
@@ -117,7 +117,10 @@ func PutStrategyEnable(c fbr.Ctx) {
 }
 
 func DelStrategy(c fbr.Ctx) {
-	name := c.GetString("name")
+	name := c.GetString("Name")
+	if len(name) == 0 {
+		c.Succ(nil)
+	}
 	_, err := common.DB.Where("Name=?", name).Delete(&strategy.Strategy{})
 	c.CheckErr(err)
 	strategy.Del(name)

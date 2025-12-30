@@ -12,6 +12,8 @@ import (
 
 func Run(port int) error {
 
+	common.DB.Sync2(new(strategy.Strategy))
+
 	s := fbr.Default()
 	s.SetPort(port)
 
