@@ -1,20 +1,30 @@
 package strategy
 
-import "github.com/injoyai/tdx/protocol"
+import (
+	"github.com/injoyai/tdx/extend"
+)
 
 var _ Interface = (*Test)(nil)
 
-type Test struct{}
+type Test struct {
+	selected map[string]struct{}
+}
 
 func (this Test) Name() string {
 	return "测试"
 }
 
-func (this Test) Signals(ks protocol.Klines) []int {
-	out := make([]int, len(ks))
-	return out
+func (this Test) Type() string { return DayKline }
+
+func (this Test) Select(code, name string, ks []*extend.Kline) bool {
+	_, ok := this.selected[code]
+	return ok
 }
 
 func init() {
-	Register(Test{})
+	Register(Test{map[string]struct{}{
+		"bj920000": {},
+		"sh600000": {},
+		"sz000001": {},
+	}})
 }

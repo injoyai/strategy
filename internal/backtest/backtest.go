@@ -4,8 +4,8 @@ import (
 	"math"
 	"time"
 
+	"github.com/injoyai/strategy/internal/strategy"
 	"github.com/injoyai/tdx/protocol"
-	"github.com/injoyai/trategy/internal/strategy"
 )
 
 type Trade struct {

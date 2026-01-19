@@ -4,8 +4,8 @@ import (
 	"github.com/injoyai/conv/cfg"
 	"github.com/injoyai/frame"
 	"github.com/injoyai/logs"
-	"github.com/injoyai/trategy/internal/api"
-	"github.com/injoyai/trategy/internal/common"
+	"github.com/injoyai/strategy/internal/api"
+	"github.com/injoyai/strategy/internal/common"
 )
 
 func main() {

@@ -3,13 +3,18 @@ package strategy
 import (
 	"errors"
 
-	"github.com/injoyai/tdx/protocol"
-	"github.com/injoyai/trategy/internal/common"
+	"github.com/injoyai/strategy/internal/common"
+	"github.com/injoyai/tdx/extend"
+)
+
+const (
+	DayKline = "day-kline"
 )
 
 type Interface interface {
-	Name() string
-	Signals(ks protocol.Klines) []int
+	Name() string                                      //策略名称
+	Type() string                                      //策略类型
+	Select(code, name string, ks []*extend.Kline) bool //策略
 }
 
 var strategies = map[string]Interface{}
@@ -27,7 +32,7 @@ func RegisterScript(s *Strategy) error {
 	if !ok {
 		return errors.New("脚本函数有误")
 	}
-	Register(NewScript(s.Name, f))
+	Register(NewScript(s.Name, s.Type, f))
 	return nil
 }
 
@@ -46,19 +51,3 @@ func Registry() []string {
 	}
 	return out
 }
-
-type SignalsFunc = func(ks protocol.Klines) []int
-
-const (
-	DefaultScript = `
-import (
-	"github.com/injoyai/tdx/protocol"
-)
-
-func Signals(ks protocol.Klines) []int {
-	out := make([]int, len(ks))
-	return out
-}
-
-`
-)

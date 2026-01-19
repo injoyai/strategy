@@ -5,9 +5,9 @@ import (
 	"github.com/injoyai/goutil/database/sqlite"
 	"github.com/injoyai/goutil/database/xorms"
 	"github.com/injoyai/logs"
+	"github.com/injoyai/strategy/internal/data"
+	"github.com/injoyai/strategy/internal/lib"
 	"github.com/injoyai/tdx"
-	"github.com/injoyai/trategy/internal/data"
-	"github.com/injoyai/trategy/internal/lib"
 	"github.com/traefik/yaegi/interp"
 	"github.com/traefik/yaegi/stdlib"
 )

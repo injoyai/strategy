@@ -4,10 +4,10 @@ import (
 	"time"
 
 	"github.com/injoyai/frame/fbr"
-	"github.com/injoyai/trategy/internal/backtest"
-	"github.com/injoyai/trategy/internal/common"
-	"github.com/injoyai/trategy/internal/screener"
-	"github.com/injoyai/trategy/internal/strategy"
+	"github.com/injoyai/strategy/internal/backtest"
+	"github.com/injoyai/strategy/internal/common"
+	"github.com/injoyai/strategy/internal/screener"
+	"github.com/injoyai/strategy/internal/strategy"
 )
 
 func Run(port int) error {

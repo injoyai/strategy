@@ -9,12 +9,14 @@ import (
 	"github.com/injoyai/goutil/database/sqlite"
 	"github.com/injoyai/goutil/oss"
 	"github.com/injoyai/tdx"
+	"github.com/injoyai/tdx/extend"
 	"github.com/injoyai/tdx/protocol"
 )
 
 const (
 	DayKline = "day-kline"
 	MinKline = "min-kline"
+	BaseInfo = "base-info"
 )
 
 func NewManage(m *tdx.Manage) (*Data, error) {
@@ -64,6 +66,23 @@ func (this *Data) GetDayKlines(code string, start, end time.Time) (protocol.Klin
 	data := protocol.Klines{}
 	err = db.Where("Time>? and Time<?", start, end).Cols("Time,Open,High,Low,Close,Volume,Amount").Asc("Time").Find(&data)
 	return data, err
+}
+
+func (this *Data) RangeDayKlines(start, end time.Time, f func(code string, ks []*extend.Kline)) {
+	dir := filepath.Join(this.DatabaseDir, DayKline)
+	oss.RangeFileInfo(dir, func(info *oss.FileInfo) (bool, error) {
+		db, err := sqlite.NewXorm(info.FullName())
+		if err != nil {
+			return false, err
+		}
+		defer db.Close()
+		data := protocol.Klines{}
+		err = db.Where("Unix>? and Unix<?", start.Unix(), end.Unix()).
+			Cols("Time,Open,High,Low,Close,Volume,Amount").
+			Asc("Time").Find(&data)
+		return data, err
+
+	})
 }
 
 func (this *Data) GetMinKlines(code string, start, end time.Time) (protocol.Klines, error) {

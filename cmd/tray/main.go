@@ -7,8 +7,8 @@ import (
 	"github.com/injoyai/frame"
 	"github.com/injoyai/goutil/oss/shell"
 	"github.com/injoyai/goutil/oss/tray"
-	"github.com/injoyai/trategy/internal/api"
-	"github.com/injoyai/trategy/internal/common"
+	"github.com/injoyai/strategy/internal/api"
+	"github.com/injoyai/strategy/internal/common"
 )
 
 func main() {

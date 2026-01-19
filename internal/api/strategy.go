@@ -5,8 +5,8 @@ import (
 
 	"github.com/injoyai/conv"
 	"github.com/injoyai/frame/fbr"
-	"github.com/injoyai/trategy/internal/common"
-	"github.com/injoyai/trategy/internal/strategy"
+	"github.com/injoyai/strategy/internal/common"
+	"github.com/injoyai/strategy/internal/strategy"
 )
 
 // GetStrategyNames
@@ -46,6 +46,7 @@ func PostStrategy(c fbr.Ctx) {
 
 	s := &strategy.Strategy{
 		Name:    req.Name,
+		Type:    strategy.DayKline,
 		Script:  strategy.DefaultScript,
 		Enable:  req.Enable,
 		Package: req.Name + conv.String(time.Now().Unix()),

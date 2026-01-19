@@ -1,18 +1,18 @@
-module github.com/injoyai/trategy
+module github.com/injoyai/strategy
 
 go 1.25.0
 
 require (
 	github.com/eclipse/paho.mqtt.golang v1.5.0
 	github.com/gofiber/fiber/v3 v3.0.0-beta.4
-	github.com/injoyai/bar v0.0.8
-	github.com/injoyai/base v1.2.18
+	github.com/injoyai/bar v0.0.9
+	github.com/injoyai/base v1.2.20
 	github.com/injoyai/conv v1.2.5
 	github.com/injoyai/frame v0.0.12
-	github.com/injoyai/goutil v1.2.26
+	github.com/injoyai/goutil v1.2.27
 	github.com/injoyai/ios v1.2.5
 	github.com/injoyai/logs v1.0.12
-	github.com/injoyai/tdx v0.0.66
+	github.com/injoyai/tdx v0.0.73
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/traefik/yaegi v0.16.1
 	github.com/valyala/fasthttp v1.68.0

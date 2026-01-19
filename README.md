@@ -28,11 +28,11 @@ curl -X POST http://localhost:8080/api/backtest \
 
 ## 项目结构
 
-- 后端入口：[main.go](file:///d:/GOPATH/src/github.com/injoyai/trategy/cmd/server/main.go)
-- HTTP 接口：[server.go](file:///d:/GOPATH/src/github.com/injoyai/trategy/internal/api/server.go)
-- 数据与样例：[data.go](file:///d:/GOPATH/src/github.com/injoyai/trategy/internal/data/data.go)、[DEMO.csv](file:///d:/GOPATH/src/github.com/injoyai/trategy/internal/data/samples/DEMO.csv)
-- 策略接口与示例：[strategy.go](file:///d:/GOPATH/src/github.com/injoyai/trategy/internal/strategy/strategy.go)、[sma.go](file:///d:/GOPATH/src/github.com/injoyai/trategy/internal/strategy/sma.go)
-- 回测引擎：[backtest.go](file:///d:/GOPATH/src/github.com/injoyai/trategy/internal/engine/backtest.go)
+- 后端入口：[main.go](file:///d:/GOPATH/src/github.com/injoyai/strategy/cmd/server/main.go)
+- HTTP 接口：[server.go](file:///d:/GOPATH/src/github.com/injoyai/strategy/internal/api/server.go)
+- 数据与样例：[data.go](file:///d:/GOPATH/src/github.com/injoyai/strategy/internal/data/data.go)、[DEMO.csv](file:///d:/GOPATH/src/github.com/injoyai/strategy/internal/data/samples/DEMO.csv)
+- 策略接口与示例：[strategy.go](file:///d:/GOPATH/src/github.com/injoyai/strategy/internal/strategy/strategy.go)、[sma.go](file:///d:/GOPATH/src/github.com/injoyai/strategy/internal/strategy/sma.go)
+- 回测引擎：[backtest.go](file:///d:/GOPATH/src/github.com/injoyai/strategy/internal/engine/backtest.go)
 
 ## 已提供接口
 
