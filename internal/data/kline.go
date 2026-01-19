@@ -80,7 +80,10 @@ func (this *Data) RangeDayKlines(start, end time.Time, f func(code string, ks []
 		err = db.Where("Unix>? and Unix<?", start.Unix(), end.Unix()).
 			Cols("Time,Open,High,Low,Close,Volume,Amount").
 			Asc("Time").Find(&data)
-		return data, err
+		if err != nil {
+			return false, err
+		}
+		return true, nil
 
 	})
 }
