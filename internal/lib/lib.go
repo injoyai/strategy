@@ -7,9 +7,7 @@ import (
 	_ "github.com/injoyai/frame/fbr"
 	_ "github.com/injoyai/ios"
 	_ "github.com/injoyai/logs"
-	_ "github.com/injoyai/tdx"
 	_ "github.com/injoyai/tdx/extend"
-	_ "github.com/injoyai/tdx/protocol"
 	"github.com/traefik/yaegi/interp"
 )
 

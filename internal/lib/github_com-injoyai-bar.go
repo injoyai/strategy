@@ -4,6 +4,8 @@ package lib
 
 import (
 	"github.com/injoyai/bar"
+	"go/constant"
+	"go/token"
 	"reflect"
 )
 
@@ -12,6 +14,8 @@ func init() {
 		// function, constant and variable definitions
 		"Animations":             reflect.ValueOf(&bar.Animations).Elem(),
 		"Copy":                   reflect.ValueOf(bar.Copy),
+		"DefaultPadding":         reflect.ValueOf(constant.MakeFromLiteral("\" \"", token.STRING, 0)),
+		"DefaultStyle":           reflect.ValueOf(constant.MakeFromLiteral("\"#\"", token.STRING, 0)),
 		"Download":               reflect.ValueOf(bar.Download),
 		"DownloadHLS":            reflect.ValueOf(bar.DownloadHLS),
 		"New":                    reflect.ValueOf(bar.New),
@@ -36,6 +40,7 @@ func init() {
 		"WithFormatSplit":        reflect.ValueOf(bar.WithFormatSplit),
 		"WithHLSCoroutine":       reflect.ValueOf(bar.WithHLSCoroutine),
 		"WithHLSProxy":           reflect.ValueOf(bar.WithHLSProxy),
+		"WithHLSRetry":           reflect.ValueOf(bar.WithHLSRetry),
 		"WithHLSShowDetails":     reflect.ValueOf(bar.WithHLSShowDetails),
 		"WithIntervalFlush":      reflect.ValueOf(bar.WithIntervalFlush),
 		"WithOption":             reflect.ValueOf(bar.WithOption),
@@ -45,6 +50,7 @@ func init() {
 		"WithRateSize":           reflect.ValueOf(bar.WithRateSize),
 		"WithRateSizeUnit":       reflect.ValueOf(bar.WithRateSizeUnit),
 		"WithRemain":             reflect.ValueOf(bar.WithRemain),
+		"WithRemain2":            reflect.ValueOf(bar.WithRemain2),
 		"WithSpeed":              reflect.ValueOf(bar.WithSpeed),
 		"WithSpeedAvg":           reflect.ValueOf(bar.WithSpeedAvg),
 		"WithSpeedUnit":          reflect.ValueOf(bar.WithSpeedUnit),
