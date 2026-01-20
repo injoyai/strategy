@@ -16,8 +16,8 @@ var Symbols = interp.Exports{}
 ///go:generate go install github.com/traefik/yaegi/cmd/yaegi@latest
 
 //go:generate yaegi extract github.com/injoyai/tdx
-//go:generate yaegi extract github.com/injoyai/protocol
-//go:generate yaegi extract github.com/injoyai/extend
+//go:generate yaegi extract github.com/injoyai/tdx/protocol
+//go:generate yaegi extract github.com/injoyai/tdx/extend
 
 /*
 //go:generate yaegi extract github.com/injoyai/ios

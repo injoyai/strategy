@@ -4,7 +4,6 @@ package lib
 
 import (
 	"github.com/injoyai/tdx/extend"
-
 	"go/constant"
 	"go/token"
 	"reflect"
@@ -14,6 +13,7 @@ func init() {
 	Symbols["github.com/injoyai/tdx/extend/extend"] = map[string]reflect.Value{
 		// function, constant and variable definitions
 		"AllKlineType":                  reflect.ValueOf(&extend.AllKlineType).Elem(),
+		"AllTable":                      reflect.ValueOf(&extend.AllTable).Elem(),
 		"Day":                           reflect.ValueOf(constant.MakeFromLiteral("\"day\"", token.STRING, 0)),
 		"DefaultDayKlineExportTitle":    reflect.ValueOf(&extend.DefaultDayKlineExportTitle).Elem(),
 		"DefaultMinuteKlineExportTitle": reflect.ValueOf(&extend.DefaultMinuteKlineExportTitle).Elem(),
@@ -26,7 +26,6 @@ func init() {
 		"GetTHSDayKline":                reflect.ValueOf(extend.GetTHSDayKline),
 		"GetTHSDayKlineFactorFull":      reflect.ValueOf(extend.GetTHSDayKlineFactorFull),
 		"GetTHSDayKlineFull":            reflect.ValueOf(extend.GetTHSDayKlineFull),
-		"Hour":                          reflect.ValueOf(constant.MakeFromLiteral("\"hour\"", token.STRING, 0)),
 		"KlineTableMap":                 reflect.ValueOf(&extend.KlineTableMap).Elem(),
 		"KlinesToCsv":                   reflect.ValueOf(extend.KlinesToCsv),
 		"ListenCodesAndGbbqHTTP":        reflect.ValueOf(extend.ListenCodesAndGbbqHTTP),
@@ -35,10 +34,10 @@ func init() {
 		"Minute15":                      reflect.ValueOf(constant.MakeFromLiteral("\"15minute\"", token.STRING, 0)),
 		"Minute30":                      reflect.ValueOf(constant.MakeFromLiteral("\"30minute\"", token.STRING, 0)),
 		"Minute5":                       reflect.ValueOf(constant.MakeFromLiteral("\"5minute\"", token.STRING, 0)),
+		"Minute60":                      reflect.ValueOf(constant.MakeFromLiteral("\"60minute\"", token.STRING, 0)),
 		"Month":                         reflect.ValueOf(constant.MakeFromLiteral("\"month\"", token.STRING, 0)),
 		"NewKlineTable":                 reflect.ValueOf(extend.NewKlineTable),
 		"NewPullKline":                  reflect.ValueOf(extend.NewPullKline),
-		"NewPullKlineMysql":             reflect.ValueOf(extend.NewPullKlineMysql),
 		"NewPullTrade":                  reflect.ValueOf(extend.NewPullTrade),
 		"Quarter":                       reflect.ValueOf(constant.MakeFromLiteral("\"quarter\"", token.STRING, 0)),
 		"Sina_HFQ":                      reflect.ValueOf(constant.MakeFromLiteral("\"hfq\"", token.STRING, 0)),
@@ -66,7 +65,6 @@ func init() {
 		"Klines":          reflect.ValueOf((*extend.Klines)(nil)),
 		"PullKline":       reflect.ValueOf((*extend.PullKline)(nil)),
 		"PullKlineConfig": reflect.ValueOf((*extend.PullKlineConfig)(nil)),
-		"PullKlineMysql":  reflect.ValueOf((*extend.PullKlineMysql)(nil)),
 		"PullTrade":       reflect.ValueOf((*extend.PullTrade)(nil)),
 	}
 }

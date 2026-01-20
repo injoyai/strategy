@@ -5,7 +5,6 @@ package lib
 import (
 	"github.com/injoyai/base/types"
 	"github.com/injoyai/tdx/protocol"
-
 	"go/constant"
 	"go/token"
 	"reflect"
@@ -26,11 +25,13 @@ func init() {
 		"ExchangeSH":             reflect.ValueOf(protocol.ExchangeSH),
 		"ExchangeSZ":             reflect.ValueOf(protocol.ExchangeSZ),
 		"FixKlineTime":           reflect.ValueOf(protocol.FixKlineTime),
+		"Float32":                reflect.ValueOf(protocol.Float32),
 		"FloatUnit":              reflect.ValueOf(protocol.FloatUnit),
 		"FloatUnitString":        reflect.ValueOf(protocol.FloatUnitString),
 		"GetHourMinute":          reflect.ValueOf(protocol.GetHourMinute),
 		"GetPrice":               reflect.ValueOf(protocol.GetPrice),
 		"GetTime":                reflect.ValueOf(protocol.GetTime),
+		"I64Sqrt":                reflect.ValueOf(protocol.I64Sqrt),
 		"Int64UnitString":        reflect.ValueOf(protocol.Int64UnitString),
 		"IntUnitString":          reflect.ValueOf(protocol.IntUnitString),
 		"IsBJStock":              reflect.ValueOf(protocol.IsBJStock),
