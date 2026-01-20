@@ -5,7 +5,6 @@ package lib
 import (
 	"github.com/injoyai/tdx"
 	"github.com/injoyai/tdx/protocol"
-
 	"go/constant"
 	"go/token"
 	"iter"

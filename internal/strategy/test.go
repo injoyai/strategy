@@ -16,7 +16,7 @@ func (this Test) Name() string {
 
 func (this Test) Type() string { return DayKline }
 
-func (this Test) Select(code, name string, ks []*extend.Kline) bool {
+func (this Test) Meet(code, name string, ks extend.Klines) bool {
 	_, ok := this.selected[code]
 	return ok
 }

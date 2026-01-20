@@ -1,73 +1,45 @@
 package screener
 
 import (
-	"sort"
+	"fmt"
 	"time"
 
 	"github.com/injoyai/strategy/internal/common"
 	"github.com/injoyai/strategy/internal/strategy"
+	"github.com/injoyai/tdx/extend"
 	"github.com/injoyai/tdx/protocol"
 )
 
 type Item struct {
-	Symbol string         `json:"symbol"`
+	Code   string         `json:"code"`
 	Score  float64        `json:"score"`
 	Price  protocol.Price `json:"price"`
 	Signal int            `json:"signal"`
 }
 
 type Request struct {
-	Strategy string  `json:"strategy"`
-	Lookback int     `json:"lookback"`
-	MinScore float64 `json:"min_score"`
-	Signal   int     `json:"signal"`
+	Strategy  string `json:"strategy"`
+	StartTime int64  `json:"start_time"`
+	EndTime   int64  `json:"end_time"`
 }
 
-func Run(req Request) ([]Item, error) {
-	codes := common.Data.GetStockCodes()
-	out := make([]Item, 0, len(codes))
+func Run(req Request) (kss []extend.Klines, err error) {
+
 	strat := strategy.Get(req.Strategy)
 	if strat == nil {
-		strat = strategy.SMA{Fast: 5, Slow: 20}
+		return nil, fmt.Errorf("strategy %s not found", req.Strategy)
 	}
-	for _, code := range codes {
-		ks, err := common.Data.GetDayKlines(code, time.Now().AddDate(-1, 0, 0), time.Now())
-		if err != nil {
-			return nil, err
-		}
-		if len(ks) == 0 {
-			continue
-		}
-		sigs := strat.Signals(ks)
-		last := len(ks) - 1
-		lb := req.Lookback
-		if lb <= 0 || lb > last {
-			lb = 10
-		}
-		var ret float64
-		start := last - lb
-		if start < 1 {
-			start = 1
-		}
-		for i := start; i <= last; i++ {
-			prev := ks[i-1].Close
-			d := (ks[i].Close - prev) / prev
-			ret += d.Float64()
-		}
-		item := Item{
-			Symbol: code,
-			Score:  ret,
-			Price:  ks[last].Close,
-			Signal: sigs[last],
-		}
-		if req.MinScore != 0 && item.Score < req.MinScore {
-			continue
-		}
-		if req.Signal != 0 && item.Signal != req.Signal {
-			continue
-		}
-		out = append(out, item)
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Score > out[j].Score })
-	return out, nil
+
+	err = common.Data.RangeDayKlines(
+		time.Unix(req.StartTime, 0),
+		time.Unix(req.EndTime, 0),
+		func(code, name string, ks extend.Klines) {
+			if strat.Meet(code, name, ks) {
+				kss = append(kss, ks)
+			}
+		},
+	)
+
+	return
+
 }

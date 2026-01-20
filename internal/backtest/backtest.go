@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/injoyai/strategy/internal/strategy"
+	"github.com/injoyai/tdx/extend"
 	"github.com/injoyai/tdx/protocol"
 )
 
@@ -54,7 +55,7 @@ type Candle struct {
 	Symbol string
 }
 
-func RunBacktestAdvanced(ks protocol.Klines, strat strategy.Interface, cfg Settings) Result {
+func RunBacktestAdvanced(ks extend.Klines, strat strategy.Interface, cfg Settings) Result {
 
 	if len(ks) == 0 {
 		return Result{
@@ -68,7 +69,7 @@ func RunBacktestAdvanced(ks protocol.Klines, strat strategy.Interface, cfg Setti
 		}
 	}
 
-	sigs := strat.Signals(ks)
+	sigs := strat.Meet(ks)
 	n := len(ks)
 	equity := make([]float64, n)
 	cashSeries := make([]float64, n)

@@ -12,9 +12,9 @@ const (
 )
 
 type Interface interface {
-	Name() string                                      //策略名称
-	Type() string                                      //策略类型
-	Select(code, name string, ks []*extend.Kline) bool //策略
+	Name() string                                  //策略名称
+	Type() string                                  //策略类型
+	Meet(code, name string, ks extend.Klines) bool //策略
 }
 
 var strategies = map[string]Interface{}

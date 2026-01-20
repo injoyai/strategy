@@ -10,7 +10,7 @@ var (
 	_ Interface = (*Script)(nil)
 )
 
-type SignalsFunc = func(ks []*extend.Kline) bool
+type SignalsFunc = func(code, name string, ks extend.Klines) bool
 
 func NewScript(name, _type string, handler SignalsFunc) *Script {
 	return &Script{name: name, _type: _type, handler: handler}
@@ -28,8 +28,8 @@ func (this *Script) Name() string {
 
 func (this *Script) Type() string { return this._type }
 
-func (this *Script) Select(code, name string, ks []*extend.Kline) bool {
-	return this.handler(ks)
+func (this *Script) Meet(code, name string, ks extend.Klines) bool {
+	return this.handler(code, name, ks)
 }
 
 /*

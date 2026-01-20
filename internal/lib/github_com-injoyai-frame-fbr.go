@@ -47,6 +47,7 @@ func init() {
 		"WithListenConfig": reflect.ValueOf(fbr.WithListenConfig),
 		"WithLog":          reflect.ValueOf(fbr.WithLog),
 		"WithLog2":         reflect.ValueOf(fbr.WithLog2),
+		"WithOptions":      reflect.ValueOf(fbr.WithOptions),
 		"WithPing":         reflect.ValueOf(fbr.WithPing),
 		"WithPort":         reflect.ValueOf(fbr.WithPort),
 		"WithPprof":        reflect.ValueOf(fbr.WithPprof),

@@ -85,6 +85,18 @@ func GetKlines(c fbr.Ctx) {
 	c.Succ(ks)
 }
 
+// GetScreener
+// @Summary
+// @Description
+// @Tags
+// @Param Authorization header string true "Authorization"
+// Param data body x.X true "body"
+// Param id query int false "id"
+// Param name query string false "name"
+// Success 200 {object} x.X
+// Success 200 {array} x.X
+// Success 200
+// @Router / [get]
 func GetScreener(c fbr.Ctx) {
 	var req screener.Request
 	c.Parse(&req)

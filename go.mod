@@ -12,7 +12,7 @@ require (
 	github.com/injoyai/goutil v1.2.27
 	github.com/injoyai/ios v1.2.5
 	github.com/injoyai/logs v1.0.12
-	github.com/injoyai/tdx v0.0.73
+	github.com/injoyai/tdx v0.0.74
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/traefik/yaegi v0.16.1
 	github.com/valyala/fasthttp v1.68.0

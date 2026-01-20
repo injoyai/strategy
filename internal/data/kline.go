@@ -3,20 +3,23 @@ package data
 import (
 	"fmt"
 	"path/filepath"
+	"strings"
 	"time"
 
-	"github.com/injoyai/conv"
 	"github.com/injoyai/goutil/database/sqlite"
 	"github.com/injoyai/goutil/oss"
 	"github.com/injoyai/tdx"
 	"github.com/injoyai/tdx/extend"
-	"github.com/injoyai/tdx/protocol"
 )
 
 const (
 	DayKline = "day-kline"
 	MinKline = "min-kline"
 	BaseInfo = "base-info"
+)
+
+type (
+	Handler = func(code, name string, ks extend.Klines)
 )
 
 func NewManage(m *tdx.Manage) (*Data, error) {
@@ -45,16 +48,20 @@ func (this *Data) dayKlineFilename(code string) string {
 	return filepath.Join(this.DatabaseDir, DayKline, code+".db")
 }
 
-func (this *Data) minKlineFilename(code string, year int) string {
-	return filepath.Join(this.DatabaseDir, MinKline, code+"-"+conv.String(year)+".db")
+func (this *Data) dayKlineDir() string {
+	return filepath.Join(this.DatabaseDir, DayKline)
 }
+
+//func (this *Data) minKlineFilename(code string, year int) string {
+//	return filepath.Join(this.DatabaseDir, MinKline, code+"-"+conv.String(year)+".db")
+//}
 
 func (this *Data) GetStockCodes() []string {
 	return this.Codes.GetStockCodes()
 }
 
-func (this *Data) GetDayKlines(code string, start, end time.Time) (protocol.Klines, error) {
-	filename := this.dayKlineFilename(code)
+func (this *Data) GetDayKlines(code string, start, end time.Time) (extend.Klines, error) {
+	filename := filepath.Join(this.dayKlineDir(), code+".db")
 	if !oss.Exists(filename) {
 		return nil, fmt.Errorf("股票[%s]数据不存在", code)
 	}
@@ -63,35 +70,30 @@ func (this *Data) GetDayKlines(code string, start, end time.Time) (protocol.Klin
 		return nil, err
 	}
 	defer db.Close()
-	data := protocol.Klines{}
-	err = db.Where("Time>? and Time<?", start, end).Cols("Time,Open,High,Low,Close,Volume,Amount").Asc("Time").Find(&data)
+	data := extend.Klines{}
+	err = db.Where("Unix>? and Unix<?", start.Unix(), end.Unix()).
+		Cols("Time,Open,High,Low,Close,Volume,Amount").
+		Asc("Unix").Find(&data)
 	return data, err
 }
 
-func (this *Data) RangeDayKlines(start, end time.Time, f func(code string, ks []*extend.Kline)) {
+func (this *Data) RangeDayKlines(start, end time.Time, f Handler) error {
 	dir := filepath.Join(this.DatabaseDir, DayKline)
-	oss.RangeFileInfo(dir, func(info *oss.FileInfo) (bool, error) {
-		db, err := sqlite.NewXorm(info.FullName())
+	return oss.RangeFileInfo(dir, func(info *oss.FileInfo) (bool, error) {
+		code := strings.TrimSuffix(info.Name(), ".db")
+		ks, err := this.GetDayKlines(code, start, end)
 		if err != nil {
 			return false, err
 		}
-		defer db.Close()
-		data := protocol.Klines{}
-		err = db.Where("Unix>? and Unix<?", start.Unix(), end.Unix()).
-			Cols("Time,Open,High,Low,Close,Volume,Amount").
-			Asc("Time").Find(&data)
-		if err != nil {
-			return false, err
-		}
+		f(code, this.Codes.GetName(code), ks)
 		return true, nil
-
 	})
 }
 
-func (this *Data) GetMinKlines(code string, start, end time.Time) (protocol.Klines, error) {
-	filename := this.minKlineFilename(code, 2025)
-	if !oss.Exists(filename) {
-		return nil, fmt.Errorf("股票[%s]数据不存在", code)
-	}
-	return nil, nil
-}
+//func (this *Data) GetMinKlines(code string, start, end time.Time) (protocol.Klines, error) {
+//	filename := this.minKlineFilename(code, 2025)
+//	if !oss.Exists(filename) {
+//		return nil, fmt.Errorf("股票[%s]数据不存在", code)
+//	}
+//	return nil, nil
+//}
