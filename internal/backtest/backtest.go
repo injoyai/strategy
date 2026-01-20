@@ -6,7 +6,6 @@ import (
 
 	"github.com/injoyai/strategy/internal/strategy"
 	"github.com/injoyai/tdx/extend"
-	"github.com/injoyai/tdx/protocol"
 )
 
 type Trade struct {
@@ -55,7 +54,7 @@ type Candle struct {
 	Symbol string
 }
 
-func RunBacktestAdvanced(ks extend.Klines, strat strategy.Interface, cfg Settings) Result {
+func RunBacktestAdvanced(code, name string, ks extend.Klines, strat strategy.Interface, cfg Settings) Result {
 
 	if len(ks) == 0 {
 		return Result{
@@ -69,7 +68,8 @@ func RunBacktestAdvanced(ks extend.Klines, strat strategy.Interface, cfg Setting
 		}
 	}
 
-	sigs := strat.Meet(ks)
+	sigs := strat.Meet(code, name, ks)
+	_ = sigs
 	n := len(ks)
 	equity := make([]float64, n)
 	cashSeries := make([]float64, n)
@@ -84,7 +84,7 @@ func RunBacktestAdvanced(ks extend.Klines, strat strategy.Interface, cfg Setting
 		price := ks[i].Close.Float64()
 		buyPx := price * (1 + cfg.Slippage)
 		sellPx := price * (1 - cfg.Slippage)
-		s := sigs[i]
+		s := 1 //sigs[i]
 		if s == 1 && pos == 0 {
 			cost := buyPx * float64(cfg.Size)
 			fee := cost * cfg.FeeRate

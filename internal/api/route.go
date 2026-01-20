@@ -144,7 +144,7 @@ func Backtest(c fbr.Ctx) {
 	if req.MinFee <= 0 {
 		req.MinFee = 5
 	}
-	res := backtest.RunBacktestAdvanced(ks, strat, backtest.Settings{
+	res := backtest.RunBacktestAdvanced(req.Code, common.Data.Codes.GetName(req.Code), ks, strat, backtest.Settings{
 		Cash:       cash,
 		Size:       size,
 		FeeRate:    req.FeeRate,
@@ -205,7 +205,7 @@ func BacktestAllWS(c fbr.Ctx) {
 			if err != nil || len(ks) == 0 {
 				continue
 			}
-			res := backtest.RunBacktestAdvanced(ks, strat, settings)
+			res := backtest.RunBacktestAdvanced(code, common.Data.Codes.GetName(code), ks, strat, settings)
 			item := BacktestItem{
 				Code:        code,
 				Name:        common.Data.Codes.GetName(code),
@@ -296,7 +296,7 @@ func BacktestAll(c fbr.Ctx) {
 		if err != nil || len(ks) == 0 {
 			continue
 		}
-		res := backtest.RunBacktestAdvanced(ks, strat, settings)
+		res := backtest.RunBacktestAdvanced(code, common.Data.Codes.GetName(code), ks, strat, settings)
 		item := BacktestItem{
 			Code:        code,
 			Name:        common.Data.Codes.GetName(code),
