@@ -2,6 +2,7 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import { BrowserRouter, Routes, Route, Link } from 'react-router-dom'
 import { Layout, Menu } from 'antd'
+import { LineChartOutlined } from '@ant-design/icons'
 import BacktestPage from './pages/Backtest'
 import StrategyPage from './pages/Strategy'
 import ScreenerPage from './pages/Screener'
@@ -15,7 +16,10 @@ function App() {
     <BrowserRouter>
       <Layout style={{ minHeight: '100vh' }}>
         <Header style={{ display: 'flex', alignItems: 'center' }}>
-          <div style={{ color: '#fff', fontWeight: 600, marginRight: 24 }}>Strategy</div>
+          <div style={{ color: '#fff', fontWeight: 600, marginRight: 24, fontSize: '18px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <LineChartOutlined />
+            Strategy
+          </div>
           <Menu theme="dark" mode="horizontal" items={[
             { key: 'backtest', label: <Link to="/">回测</Link> },
             { key: 'strategy', label: <Link to="/strategy">策略</Link> },
