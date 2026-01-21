@@ -7,7 +7,7 @@ import (
 	_ "github.com/injoyai/frame/fbr"
 	_ "github.com/injoyai/ios"
 	_ "github.com/injoyai/logs"
-	_ "github.com/injoyai/tdx/extend"
+	_ "github.com/injoyai/tdx"
 	"github.com/traefik/yaegi/interp"
 )
 
@@ -15,11 +15,11 @@ var Symbols = interp.Exports{}
 
 ///go:generate go install github.com/traefik/yaegi/cmd/yaegi@latest
 
+/*
 //go:generate yaegi extract github.com/injoyai/tdx
 //go:generate yaegi extract github.com/injoyai/tdx/protocol
 //go:generate yaegi extract github.com/injoyai/tdx/extend
 
-/*
 //go:generate yaegi extract github.com/injoyai/ios
 //go:generate yaegi extract github.com/injoyai/ios/client
 //go:generate yaegi extract github.com/injoyai/ios/client/dial
@@ -67,6 +67,8 @@ var Symbols = interp.Exports{}
 //go:generate yaegi extract github.com/injoyai/base/str
 //go:generate yaegi extract github.com/injoyai/base/types
 
+*/
+
 //go:generate yaegi extract github.com/injoyai/frame
 //go:generate yaegi extract github.com/injoyai/frame/fbr
 //go:generate yaegi extract github.com/injoyai/frame/gins
@@ -76,4 +78,6 @@ var Symbols = interp.Exports{}
 
 //go:generate yaegi extract github.com/injoyai/logs
 //go:generate yaegi extract github.com/injoyai/bar
-*/
+
+/*
+ */

@@ -15,23 +15,23 @@ export default function MarketPage() {
       try {
         const codes = await getCodes()
         setSymbols(codes)
-        form.setFieldsValue({ symbol: codes[0]?.code, range: [dayjs().subtract(10, 'year'), dayjs()] })
+        form.setFieldsValue({ code: codes[0]?.code, range: [dayjs().subtract(10, 'year'), dayjs()] })
         fetchCandles(codes[0]?.code)
       } catch {
         const syms = ['DEMO','DEMO2','TRENDUP','TRENDDOWN','RANGE']
         setSymbols(syms.map(s => ({ code: s, name: s })))
-        form.setFieldsValue({ symbol: syms[0], range: [dayjs().subtract(10, 'year'), dayjs()] })
+        form.setFieldsValue({ code: syms[0], range: [dayjs().subtract(10, 'year'), dayjs()] })
         fetchCandles(syms[0])
       }
     })()
   }, [])
 
-  async function fetchCandles(symbol: string) {
+  async function fetchCandles(code: string) {
     setLoading(true)
     try {
       const v = form.getFieldsValue()
       const res = await getKlines({
-        code: symbol,
+        code: code,
         start: v.range?.[0] ? v.range[0].format('YYYY-MM-DD') : undefined,
         end: v.range?.[1] ? v.range[1].format('YYYY-MM-DD') : undefined,
       })
@@ -47,7 +47,7 @@ export default function MarketPage() {
     <Space direction="vertical" style={{ width: '100%' }} size="large">
       <Card title="行情数据">
         <Form form={form} layout="inline">
-          <Form.Item name="symbol" label="股票" rules={[{ required: true }]}>
+          <Form.Item name="code" label="股票" rules={[{ required: true }]}>
             <Select
               style={{ width: 240 }}
               showSearch
@@ -64,7 +64,7 @@ export default function MarketPage() {
             <DatePicker.RangePicker disabledDate={d => d.isAfter(dayjs('2025-12-31'))} />
           </Form.Item>
           <Form.Item>
-            <Button type="primary" onClick={() => fetchCandles(form.getFieldValue('symbol'))} loading={loading}>加载</Button>
+            <Button type="primary" onClick={() => fetchCandles(form.getFieldValue('code'))} loading={loading}>加载</Button>
           </Form.Item>
         </Form>
       </Card>

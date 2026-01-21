@@ -15,7 +15,7 @@ function App() {
     <BrowserRouter>
       <Layout style={{ minHeight: '100vh' }}>
         <Header style={{ display: 'flex', alignItems: 'center' }}>
-          <div style={{ color: '#fff', fontWeight: 600, marginRight: 24 }}>Trategy</div>
+          <div style={{ color: '#fff', fontWeight: 600, marginRight: 24 }}>Strategy</div>
           <Menu theme="dark" mode="horizontal" items={[
             { key: 'backtest', label: <Link to="/">回测</Link> },
             { key: 'strategy', label: <Link to="/strategy">策略</Link> },

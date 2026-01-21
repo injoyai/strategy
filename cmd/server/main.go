@@ -9,8 +9,10 @@ import (
 )
 
 func main() {
-	logs.PanicErr(common.Init())
+	err := common.Init()
+	logs.PanicErr(err)
 	common.Data.Start()
 	port := cfg.GetInt("port", frame.DefaultPort)
-	logs.Err(api.Run(port))
+	err = api.Run(port)
+	logs.Err(err)
 }

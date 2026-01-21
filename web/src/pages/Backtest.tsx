@@ -32,19 +32,19 @@ export default function BacktestPage() {
         const codes = await getCodes()
         setStrategies(strats)
         setSymbols(codes)
-        form.setFieldsValue({ strategy: strats[0], symbol: codes[0]?.code, cash: 100000, size: 10, fee_rate: 0.5, min_fee: 5 })
+        form.setFieldsValue({ strategy: strats[0], code: codes[0]?.code, cash: 100000, size: 10, fee_rate: 0.5, min_fee: 5 })
       } catch {
         const syms = ['DEMO','DEMO2','TRENDUP','TRENDDOWN','RANGE']
         const strats = ['sma_cross','rsi']
         setSymbols(syms.map(s => ({ code: s, name: s })))
         setStrategies(strats)
-        form.setFieldsValue({ strategy: strats[0], symbol: syms[0], cash: 100000, size: 10, fee_rate: 0.5, min_fee: 5 })
+        form.setFieldsValue({ strategy: strats[0], code: syms[0], cash: 100000, size: 10, fee_rate: 0.5, min_fee: 5 })
       }
     })()
   }, [])
 
-  async function onRunForSymbol(sym: string) {
-    await onRunSymbol(sym)
+  async function onRunForCode(code: string) {
+    await onRunCode(code)
   }
 
   async function onRun() {
@@ -100,13 +100,13 @@ export default function BacktestPage() {
     }
   }
 
-  async function onRunSymbol(sym: string) {
+  async function onRunCode(code: string) {
     const v = await form.getFieldsValue()
     setLoading(true)
     try {
       const res = await backtest({
         strategy: v.strategy,
-        symbol: sym,
+        code: code,
         start: v.range?.[0] ? v.range[0].format('YYYY-MM-DD') : undefined,
         end: v.range?.[1] ? v.range[1].format('YYYY-MM-DD') : undefined,
         cash: v.cash,
@@ -122,7 +122,7 @@ export default function BacktestPage() {
       setMetrics({ ret: res.return, dd: res.max_drawdown, sharpe: res.sharpe })
       setTrades(res.trades.map((t: any) => ({ index: t.index, side: t.side, price: t.price })))
       const c = await getKlines({
-        code: sym,
+        code: code,
         start: v.range?.[0] ? v.range[0].format('YYYY-MM-DD') : undefined,
         end: v.range?.[1] ? v.range[1].format('YYYY-MM-DD') : undefined,
       })
@@ -149,7 +149,7 @@ export default function BacktestPage() {
     setLoading(true)
     try {
       const res = await grid({
-        symbol: v.symbol,
+        code: v.code,
         start: v.range?.[0] ? v.range[0].format('YYYY-MM-DD') : undefined,
         end: v.range?.[1] ? v.range[1].format('YYYY-MM-DD') : undefined,
         cash: v.cash,
@@ -258,7 +258,7 @@ export default function BacktestPage() {
                       </Form.Item>
                     </Col>
                     <Col xs={24} md={8}>
-                      <Form.Item name="symbol" label="股票" rules={[{ required: true }]}>
+                      <Form.Item name="code" label="股票" rules={[{ required: true }]}>
                         <Select
                           size="small"
                           style={{ width: '100%' }}
@@ -320,7 +320,7 @@ export default function BacktestPage() {
                   <Row gutter={[16, 8]} align="middle">
                     <Col xs={24} md={16}>
                       <Space wrap>
-                        <Button size="small" type="primary" onClick={() => onRunSymbol(form.getFieldValue('symbol'))} loading={loading}>个股回测</Button>
+                        <Button size="small" type="primary" onClick={() => onRunCode(form.getFieldValue('code'))} loading={loading}>个股回测</Button>
                         <Button size="small" onClick={onGridRun} loading={loading}>SMA 网格回测</Button>
                       </Space>
                     </Col>
@@ -374,7 +374,7 @@ export default function BacktestPage() {
                 size="small"
                 rowKey="code"
                 dataSource={screenList}
-                onRow={r => ({ onClick: () => onRunForSymbol(r.code) })}
+                onRow={r => ({ onClick: () => onRunForCode(r.code) })}
                 pagination={{ pageSize: 8 }}
                 columns={[
                   { title: '标的', dataIndex: 'name', render: (_: any, r: any) => `${r.name}-${r.code}` },

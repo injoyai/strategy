@@ -1,17 +1,15 @@
 package data
 
 import (
+	"path/filepath"
 	"time"
 
 	"github.com/injoyai/goutil/database/sqlite"
 	"github.com/injoyai/goutil/database/xorms"
-	"github.com/injoyai/goutil/g"
-	"github.com/injoyai/goutil/str/bar/v2"
 	"github.com/injoyai/logs"
 	"github.com/injoyai/tdx"
-	"github.com/injoyai/tdx/protocol"
+	"github.com/injoyai/tdx/extend"
 	"github.com/robfig/cron/v3"
-	"xorm.io/xorm"
 )
 
 /*
@@ -22,102 +20,104 @@ import (
 
 // Start 更新数据
 func (this *Data) Start() {
+	p := extend.NewPullKline(extend.PullKlineConfig{
+		Tables:     []string{extend.Day},
+		Goroutines: this.Goroutines,
+		Dir:        filepath.Join(tdx.DefaultDatabaseDir, Kline),
+	})
+
 	cr := cron.New(cron.WithSeconds())
 	cr.AddFunc("0 20 15 * * *", func() {
-		logs.PrintErr(this.updateDayKlineAll())
+		logs.PrintErr(p.Update(this.Manage))
 	})
-	logs.PrintErr(this.updateDayKlineAll())
+
+	logs.PrintErr(p.Update(this.Manage))
 	cr.Start()
 }
 
-// updateDayKline 更新日线数据
-func (this *Data) updateDayKlineAll() error {
-	updated, err := this.Updated.Updated(DayKline)
-	if err != nil {
-		return err
-	}
-	if updated {
-		return nil
-	}
-	codes := this.Codes.GetStockCodes()
-	b := bar.NewCoroutine(len(codes), this.Goroutines)
-	defer b.Close()
-	for i := range codes {
-		code := codes[i]
-		b.Go(func() {
-			err := this.updateDayKline(code)
-			if err != nil {
-				b.Log("[ERR]", err)
-				b.Flush()
-			}
-		})
-	}
-	b.Wait()
-	return this.Updated.Update(DayKline)
-}
+//// updateDayKline 更新日线数据
+//func (this *Data) updateDayKlineAll() error {
+//	updated, err := this.Updated.Updated(DayKline)
+//	if err != nil {
+//		return err
+//	}
+//	if updated {
+//		return nil
+//	}
+//	codes := this.Codes.GetStockCodes()
+//	b := bar.NewCoroutine(len(codes), this.Goroutines)
+//	defer b.Close()
+//	for i := range codes {
+//		code := codes[i]
+//		b.Go(func() {
+//			err := this.updateDayKline(code)
+//			if err != nil {
+//				b.Log("[ERR]", err)
+//				b.Flush()
+//			}
+//		})
+//	}
+//	b.Wait()
+//	return this.Updated.Update(DayKline)
+//}
 
-func (this *Data) updateDayKline(code string) error {
-	code = protocol.AddPrefix(code)
-	filename := this.dayKlineFilename(code)
-
-	db, err := sqlite.NewXorm(filename)
-	if err != nil {
-		return err
-	}
-	defer db.Close()
-	err = db.Sync2(new(protocol.Kline))
-	if err != nil {
-		return err
-	}
-
-	//读取最后的数据
-	last := new(protocol.Kline)
-	_, err = db.Get(last)
-	if err != nil {
-		return err
-	}
-
-	//拉取数据
-	var resp *protocol.KlineResp
-	err = g.Retry(func() error {
-		return this.Do(func(c *tdx.Client) error {
-			resp, err = c.GetKlineDayUntil(code, func(k *protocol.Kline) bool {
-				return k.Time.Unix() <= last.Time.Unix()
-			})
-			return err
-		})
-	}, this.Retry)
-	if err != nil {
-		return err
-	}
-
-	return db.SessionFunc(func(session *xorm.Session) error {
-
-		//方便日内更新
-		_, err = session.Where("Time>=?", last.Time).Delete(new(protocol.Kline))
-		if err != nil {
-			return err
-		}
-
-		for _, v := range resp.List {
-			if v.Time.Unix() < last.Time.Unix() {
-				continue
-			}
-			_, err = session.Insert(v)
-			if err != nil {
-				return err
-			}
-		}
-
-		return nil
-	})
-
-}
-
-// updateMinKline 更新分钟数据
-func updateMinKline() {
-
-}
+//func (this *Data) updateDayKline(code string) error {
+//	code = protocol.AddPrefix(code)
+//	filename := this.dayKlineFilename(code)
+//
+//	db, err := sqlite.NewXorm(filename)
+//	if err != nil {
+//		return err
+//	}
+//	defer db.Close()
+//	err = db.Sync2(new(protocol.Kline))
+//	if err != nil {
+//		return err
+//	}
+//
+//	//读取最后的数据
+//	last := new(protocol.Kline)
+//	_, err = db.Get(last)
+//	if err != nil {
+//		return err
+//	}
+//
+//	//拉取数据
+//	var resp *protocol.KlineResp
+//	err = g.Retry(func() error {
+//		return this.Do(func(c *tdx.Client) error {
+//			resp, err = c.GetKlineDayUntil(code, func(k *protocol.Kline) bool {
+//				return k.Time.Unix() <= last.Time.Unix()
+//			})
+//			return err
+//		})
+//	}, this.Retry)
+//	if err != nil {
+//		return err
+//	}
+//
+//	return db.SessionFunc(func(session *xorm.Session) error {
+//
+//		//方便日内更新
+//		_, err = session.Where("Time>=?", last.Time).Delete(new(protocol.Kline))
+//		if err != nil {
+//			return err
+//		}
+//
+//		for _, v := range resp.List {
+//			if v.Time.Unix() < last.Time.Unix() {
+//				continue
+//			}
+//			_, err = session.Insert(v)
+//			if err != nil {
+//				return err
+//			}
+//		}
+//
+//		return nil
+//	})
+//
+//}
 
 /*
 

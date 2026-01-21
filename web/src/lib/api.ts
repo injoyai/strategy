@@ -15,10 +15,10 @@ function unwrap(d: any) {
 }
 
 export async function getStrategies() {
-  const { data } = await api.get('/strategies')
+  const { data } = await api.get('/strategy/names')
   const body = unwrap(data)
-  const strategies = Array.isArray(body) ? body.map((s: any) => String(s)) : (body.strategies || body.Strategies || []).map((s: any) => String(s))
-  return strategies as string[]
+  const arr = Array.isArray(body) ? body : (body.names || body.list || body.items || [])
+  return arr.map((s: any) => String(s))
 }
 
 export async function getStrategyNames(): Promise<string[]> {
@@ -64,7 +64,7 @@ export async function deleteStrategy(name: string) {
 }
 
 export async function getCodes(): Promise<{ code: string, name: string }[]> {
-  const { data } = await api.get('/codes')
+  const { data } = await api.get('/stock/codes')
   const body = unwrap(data)
   const arr = Array.isArray(body) ? body : (body.codes || body.Codes || [])
   return arr.map((s: any) => {
@@ -78,7 +78,7 @@ export async function getCodes(): Promise<{ code: string, name: string }[]> {
 
 export async function backtest(req: {
   strategy: string
-  symbol: string
+  code: string
   start?: string
   end?: string
   cash?: number
@@ -91,7 +91,7 @@ export async function backtest(req: {
 }) {
   const payload: any = {
     strategy: req.strategy,
-    symbol: req.symbol,
+    code: req.code,
     start: req.start,
     end: req.end,
     cash: req.cash,
@@ -211,20 +211,20 @@ export function backtestAllWS(req: {
   return ws
 }
 
-export async function screener(body: { strategy: string, lookback?: number }) {
-  const { data } = await api.post('/screener', body)
+export async function screener(body: { strategy: string, lookback?: number, start_time?: number, end_time?: number }) {
+  const { data } = await api.post('/stock/screener', body)
   const body2 = unwrap(data)
   const arr = Array.isArray(body2) ? body2 : (body2.items || body2.list || [])
   return arr.map((it: any) => ({
-    symbol: it.symbol ?? it.ticker ?? it.code,
+    code: it.symbol ?? it.ticker ?? it.code,
     score: it.score ?? it.value ?? 0,
     price: it.price ?? it.last ?? 0,
     signal: it.signal ?? it.sig ?? 0
-  })) as { symbol: string, score: number, price: number, signal: number }[]
+  })) as { code: string, score: number, price: number, signal: number }[]
 }
 
 export async function grid(body: {
-  symbol: string
+  code: string
   start?: string
   end?: string
   cash?: number
@@ -248,7 +248,7 @@ export async function grid(body: {
   })) as { fast: number, slow: number, return: number, sharpe: number, max_drawdown: number }[]
 }
 
-export async function getCandles(params: { symbol: string, start?: string, end?: string }) {
+export async function getCandles(params: { code: string, start?: string, end?: string }) {
   const { data } = await api.get('/candles', { params })
   const body = unwrap(data)
   const arr = Array.isArray(body) ? body : (body.items || body.list || [])
@@ -262,13 +262,13 @@ export async function getCandles(params: { symbol: string, start?: string, end?:
       Low: c.Low ?? c.low ?? c.l ?? 0,
       Close: c.Close ?? c.close ?? c.c ?? 0,
       Volume: c.Volume ?? c.volume ?? c.v ?? 0,
-      Symbol: c.Symbol ?? c.symbol ?? c.ticker ?? c.code ?? params.symbol
+      Code: c.Symbol ?? c.symbol ?? c.ticker ?? c.code ?? params.code
     }
-  }) as { Time: string, Open: number, High: number, Low: number, Close: number, Volume: number, Symbol: string }[]
+  }) as { Time: string, Open: number, High: number, Low: number, Close: number, Volume: number, Code: string }[]
 }
 
 export async function getKlines(params: { code: string, start?: string, end?: string }) {
-  const { data } = await api.get('/klines', { params })
+  const { data } = await api.get('/stock/klines', { params })
   const body = unwrap(data)
   const arr = Array.isArray(body) ? body : (body.items || body.list || [])
   return arr.map((c: any) => {
@@ -276,16 +276,16 @@ export async function getKlines(params: { code: string, start?: string, end?: st
     const iso = typeof t === 'number' ? new Date(t * (t > 10000000000 ? 1 : 1000)).toISOString() : String(t)
     return {
       Time: iso,
-      Open: Number(((c.Open ?? c.open ?? c.o ?? c.OpenPrice ?? 0) / 1000).toFixed(4)),
-      High: Number(((c.High ?? c.high ?? c.h ?? c.HighPrice ?? 0) / 1000).toFixed(4)),
-      Low: Number(((c.Low ?? c.low ?? c.l ?? c.LowPrice ?? 0) / 1000).toFixed(4)),
-      Close: Number(((c.Close ?? c.close ?? c.c ?? c.ClosePrice ?? 0) / 1000).toFixed(4)),
+      Open: Number(c.Open ?? c.open ?? c.o ?? c.OpenPrice ?? 0),
+      High: Number(c.High ?? c.high ?? c.h ?? c.HighPrice ?? 0),
+      Low: Number(c.Low ?? c.low ?? c.l ?? c.LowPrice ?? 0),
+      Close: Number(c.Close ?? c.close ?? c.c ?? c.ClosePrice ?? 0),
       Volume: c.Volume ?? c.volume ?? c.v ?? c.TradeVolume ?? 0,
-      Amount: c.Amount ? Number(((c.Amount ?? 0) / 1000).toFixed(2)) :
-               c.amount ? Number(((c.amount ?? 0) / 1000).toFixed(2)) :
-               c.Turnover ? Number(((c.Turnover ?? 0) / 1000).toFixed(2)) :
-               c.trade_amount ? Number(((c.trade_amount ?? 0) / 1000).toFixed(2)) : undefined,
-      Symbol: c.Symbol ?? c.symbol ?? c.ticker ?? c.code ?? params.code
+      Amount: c.Amount ? Number(c.Amount) :
+               c.amount ? Number(c.amount) :
+               c.Turnover ? Number(c.Turnover) :
+               c.trade_amount ? Number(c.trade_amount) : undefined,
+      Code: c.Symbol ?? c.symbol ?? c.ticker ?? c.code ?? params.code
     }
-  }) as { Time: string, Open: number, High: number, Low: number, Close: number, Volume: number, Amount?: number, Symbol: string }[]
+  }) as { Time: string, Open: number, High: number, Low: number, Close: number, Volume: number, Amount?: number, Code: string }[]
 }

@@ -11,7 +11,7 @@ type Test struct {
 }
 
 func (this Test) Name() string {
-	return "测试"
+	return "test"
 }
 
 func (this Test) Type() string { return DayKline }

@@ -16,7 +16,7 @@ func main() {
 	port := cfg.GetInt("port", frame.DefaultPort)
 
 	tray.Run(
-		tray.WithHint("Trategy"),
+		tray.WithHint("Strategy"),
 		func(s *tray.Tray) {
 			err := common.Init()
 			if err != nil {

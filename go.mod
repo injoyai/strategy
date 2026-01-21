@@ -5,10 +5,10 @@ go 1.25.0
 require (
 	github.com/eclipse/paho.mqtt.golang v1.5.0
 	github.com/gofiber/fiber/v3 v3.0.0-beta.4
-	github.com/injoyai/bar v0.0.9
+	github.com/injoyai/bar v0.0.11
 	github.com/injoyai/base v1.2.20
 	github.com/injoyai/conv v1.2.5
-	github.com/injoyai/frame v0.0.12
+	github.com/injoyai/frame v0.0.13
 	github.com/injoyai/goutil v1.2.27
 	github.com/injoyai/ios v1.2.5
 	github.com/injoyai/logs v1.0.12
@@ -16,14 +16,11 @@ require (
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/traefik/yaegi v0.16.1
 	github.com/valyala/fasthttp v1.68.0
-	xorm.io/xorm v1.3.11
 )
 
 require (
 	filippo.io/edwards25519 v1.1.0 // indirect
-	github.com/PuerkitoBio/goquery v1.8.1 // indirect
 	github.com/andybalholm/brotli v1.2.0 // indirect
-	github.com/andybalholm/cascadia v1.3.1 // indirect
 	github.com/bytedance/sonic v1.14.0 // indirect
 	github.com/bytedance/sonic/loader v0.3.0 // indirect
 	github.com/cloudwego/base64x v0.1.6 // indirect
@@ -99,4 +96,5 @@ require (
 	modernc.org/sqlite v1.28.0 // indirect
 	xorm.io/builder v0.3.13 // indirect
 	xorm.io/core v0.7.3 // indirect
+	xorm.io/xorm v1.3.11 // indirect
 )

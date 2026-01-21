@@ -30,7 +30,12 @@ func Run(req Request) (kss []extend.Klines, err error) {
 		return nil, fmt.Errorf("strategy %s not found", req.Strategy)
 	}
 
+	if req.EndTime == 0 {
+		req.EndTime = time.Now().Unix()
+	}
+
 	err = common.Data.RangeDayKlines(
+		100,
 		time.Unix(req.StartTime, 0),
 		time.Unix(req.EndTime, 0),
 		func(code, name string, ks extend.Klines) {
