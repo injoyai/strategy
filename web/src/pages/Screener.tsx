@@ -26,12 +26,10 @@ export default function ScreenerPage() {
           range: [defaultStart, defaultEnd]
         })
       } catch {
-        const strats = ['sma_cross','rsi']
-        setStrategies(strats)
+        setStrategies([])
         const defaultStart = dayjs().subtract(1, 'month')
         const defaultEnd = dayjs().hour(23).minute(23).second(0)
         form.setFieldsValue({ 
-          strategy: strats[0], 
           lookback: 10,
           range: [defaultStart, defaultEnd]
         })
@@ -68,8 +66,9 @@ export default function ScreenerPage() {
     const nextCharts: Record<string, { candles: any[], trades: { index: number, side: string }[] }> = { ...charts }
     const chunkSize = 6
     const v = form.getFieldsValue()
-    const start = v.range?.[0] ? v.range[0].format('YYYY-MM-DD HH:mm:ss') : undefined
-    const end = v.range?.[1] ? v.range[1].format('YYYY-MM-DD HH:mm:ss') : undefined
+    // 后端 GetKlines 和 Backtest 接口期望的时间格式是 YYYY-MM-DD
+    const start = v.range?.[0] ? v.range[0].format('YYYY-MM-DD') : undefined
+    const end = v.range?.[1] ? v.range[1].format('YYYY-MM-DD') : undefined
     
     for (let i = 0; i < items.length; i += chunkSize) {
       const batch = items.slice(i, i + chunkSize)
@@ -164,7 +163,7 @@ export default function ScreenerPage() {
           dataSource={data}
           columns={[
             { title: '股票', dataIndex: 'code' },
-            { title: '价格', dataIndex: 'price' },
+            { title: '价格', dataIndex: 'price', render: (v: number) => v.toFixed(2) },
             { title: '评分', dataIndex: 'score', render: (v: number) => v.toFixed(4) },
             { title: '信号', dataIndex: 'signal', render: (s: number) => s === 1 ? <Tag color="green">买入</Tag> : s === -1 ? <Tag color="red">卖出</Tag> : <Tag>观望</Tag> },
           ]}

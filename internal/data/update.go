@@ -28,11 +28,23 @@ func (this *Data) Start() {
 
 	cr := cron.New(cron.WithSeconds())
 	cr.AddFunc("0 20 15 * * *", func() {
-		logs.PrintErr(p.Update(this.Manage))
+		logs.PrintErr(this.Update(p))
 	})
 
-	logs.PrintErr(p.Update(this.Manage))
+	logs.PrintErr(this.Update(p))
+
 	cr.Start()
+}
+
+func (this *Data) Update(p *extend.PullKline) error {
+	if updated, _ := this.Updated.Updated(Kline); !updated {
+		err := p.Update(this.Manage)
+		if err != nil {
+			return err
+		}
+		return this.Updated.Update(Kline)
+	}
+	return nil
 }
 
 //// updateDayKline 更新日线数据

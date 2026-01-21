@@ -218,7 +218,7 @@ export async function screener(body: { strategy: string, lookback?: number, star
   return arr.map((it: any) => ({
     code: it.symbol ?? it.ticker ?? it.code,
     score: it.score ?? it.value ?? 0,
-    price: it.price ?? it.last ?? 0,
+    price: (it.price ?? it.last ?? 0) / 1000,
     signal: it.signal ?? it.sig ?? 0
   })) as { code: string, score: number, price: number, signal: number }[]
 }
