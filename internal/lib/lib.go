@@ -76,9 +76,6 @@ var Symbols = interp.Exports{}
 
 //go:generate yaegi extract github.com/injoyai/logs
 
-*/
-
 //go:generate yaegi extract github.com/injoyai/bar
 
-/*
- */
+*/
