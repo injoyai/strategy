@@ -21,15 +21,16 @@ function App() {
             Strategy
           </div>
           <Menu theme="dark" mode="horizontal" items={[
-            { key: 'backtest', label: <Link to="/">回测</Link> },
+            { key: 'screener', label: <Link to="/">选股</Link> },
+            { key: 'backtest', label: <Link to="/backtest">回测</Link> },
             { key: 'strategy', label: <Link to="/strategy">策略</Link> },
-            { key: 'screener', label: <Link to="/screener">选股</Link> },
             { key: 'market', label: <Link to="/market">行情</Link> },
           ]} />
         </Header>
         <Content style={{ padding: 24 }}>
           <Routes>
-            <Route path="/" element={<BacktestPage />} />
+            <Route path="/" element={<ScreenerPage />} />
+            <Route path="/backtest" element={<BacktestPage />} />
             <Route path="/strategy" element={<StrategyPage />} />
             <Route path="/screener" element={<ScreenerPage />} />
             <Route path="/market" element={<MarketPage />} />

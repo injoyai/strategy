@@ -9,6 +9,8 @@ export default function MarketPage() {
   const [candles, setCandles] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
   const [form] = Form.useForm()
+  const [showMA, setShowMA] = useState(true)
+  const [showBoll, setShowBoll] = useState(false)
 
   useEffect(() => {
     (async () => {
@@ -69,7 +71,11 @@ export default function MarketPage() {
         </Form>
       </Card>
       <Card title="K线">
-        <PriceChart candles={candles} enableZoom defaultWindowCount={120} />
+        <Space style={{ marginBottom: 8 }}>
+          <Button size="small" type={showMA ? 'primary' : 'default'} onClick={() => setShowMA(!showMA)}>均线</Button>
+          <Button size="small" type={showBoll ? 'primary' : 'default'} onClick={() => setShowBoll(!showBoll)}>布林带</Button>
+        </Space>
+        <PriceChart candles={candles} enableZoom defaultWindowCount={120} showMA={showMA} showBollinger={showBoll} />
       </Card>
     </Space>
   )

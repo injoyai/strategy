@@ -12,6 +12,7 @@ import (
 // Item 选股结果项
 type Item struct {
 	Code   string  `json:"code"`   // 股票代码
+	Name   string  `json:"name"`   //股票名称
 	Score  float64 `json:"score"`  // 评分
 	Price  float64 `json:"price"`  // 最新价格
 	Signal int     `json:"signal"` // 信号类型 1:买入 -1:卖出
@@ -54,9 +55,10 @@ func Run(req Request) (items []Item, err error) {
 				// 构造返回结果
 				items = append(items, Item{
 					Code:   code,
-					Score:  0,     // 默认评分
+					Name:   name,
 					Price:  price, // 最新收盘价
-					Signal: 1,     // 默认买入信号
+					Score:  0,     // 默认评分
+					Signal: 0,     // 默认买入信号
 				})
 			}
 		},

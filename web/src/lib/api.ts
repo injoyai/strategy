@@ -217,10 +217,11 @@ export async function screener(body: { strategy: string, lookback?: number, star
   const arr = Array.isArray(body2) ? body2 : (body2.items || body2.list || [])
   return arr.map((it: any) => ({
     code: it.symbol ?? it.ticker ?? it.code,
+    name: it.name ?? it.Name ?? '',
     score: it.score ?? it.value ?? 0,
     price: (it.price ?? it.last ?? 0) / 1000,
     signal: it.signal ?? it.sig ?? 0
-  })) as { code: string, score: number, price: number, signal: number }[]
+  })) as { code: string, name: string, score: number, price: number, signal: number }[]
 }
 
 export async function grid(body: {
@@ -274,17 +275,17 @@ export async function getKlines(params: { code: string, start?: string, end?: st
   return arr.map((c: any) => {
     const t = c.Time ?? c.time ?? c.timestamp ?? c.ts ?? c.date
     const iso = typeof t === 'number' ? new Date(t * (t > 10000000000 ? 1 : 1000)).toISOString() : String(t)
+    const rawAmount = c.Amount ?? c.amount ?? c.Turnover ?? c.trade_amount
+    const amountYuan = typeof rawAmount === 'number' ? Number(rawAmount) / 1000 :
+                       rawAmount != null ? Number(rawAmount) / 1000 : undefined
     return {
       Time: iso,
-      Open: Number(c.Open ?? c.open ?? c.o ?? c.OpenPrice ?? 0),
-      High: Number(c.High ?? c.high ?? c.h ?? c.HighPrice ?? 0),
-      Low: Number(c.Low ?? c.low ?? c.l ?? c.LowPrice ?? 0),
-      Close: Number(c.Close ?? c.close ?? c.c ?? c.ClosePrice ?? 0),
+      Open: Number(c.Open ?? c.open ?? c.o ?? c.OpenPrice ?? 0) / 1000,
+      High: Number(c.High ?? c.high ?? c.h ?? c.HighPrice ?? 0) / 1000,
+      Low: Number(c.Low ?? c.low ?? c.l ?? c.LowPrice ?? 0) / 1000,
+      Close: Number(c.Close ?? c.close ?? c.c ?? c.ClosePrice ?? 0) / 1000,
       Volume: c.Volume ?? c.volume ?? c.v ?? c.TradeVolume ?? 0,
-      Amount: c.Amount ? Number(c.Amount) :
-               c.amount ? Number(c.amount) :
-               c.Turnover ? Number(c.Turnover) :
-               c.trade_amount ? Number(c.trade_amount) : undefined,
+      Amount: amountYuan,
       Code: c.Symbol ?? c.symbol ?? c.ticker ?? c.code ?? params.code
     }
   }) as { Time: string, Open: number, High: number, Low: number, Close: number, Volume: number, Amount?: number, Code: string }[]

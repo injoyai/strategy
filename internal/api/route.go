@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/injoyai/frame/fbr"
+	dist "github.com/injoyai/strategy"
 	"github.com/injoyai/strategy/internal/backtest"
 	"github.com/injoyai/strategy/internal/common"
 	"github.com/injoyai/strategy/internal/screener"
@@ -14,8 +15,11 @@ func Run(port int) error {
 
 	common.DB.Sync2(new(strategy.Strategy))
 
-	s := fbr.Default()
-	s.SetPort(port)
+	s := fbr.Default(
+		fbr.WithPort(port),
+		fbr.WithEmbed(dist.Dist),
+	)
+	s.Embed("/", dist.Dist)
 
 	s.Group("/api", func(g fbr.Grouper) {
 		g.Group("/strategy", func(g fbr.Grouper) {

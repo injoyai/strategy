@@ -1,1 +1,1 @@
-cmd /c "cd web & npm.cmd run dev"
+cmd /c "cd web && npm.cmd install && npm.cmd run dev"
