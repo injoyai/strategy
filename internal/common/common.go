@@ -18,10 +18,18 @@ var (
 	DB *xorms.Engine
 
 	Script *interp.Interpreter
+
+	BuildDate string
 )
 
 func Init() error {
-	m, err := tdx.NewManage(tdx.WithClients(3))
+
+	logs.Info("编译日期:", BuildDate)
+
+	m, err := tdx.NewManage(
+		tdx.WithClients(3),
+		tdx.WithDialGbbqDefault(),
+	)
 	if err != nil {
 		return err
 	}

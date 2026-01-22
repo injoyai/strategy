@@ -7,7 +7,7 @@ import (
 
 type Ouy struct{}
 
-func (Ouy) Name() string { return "测试" }
+func (Ouy) Name() string { return "欧阳总策略" }
 
 func (Ouy) Type() string { return DayKline }
 
