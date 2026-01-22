@@ -69,7 +69,6 @@ func (this *Data) GetDayKlines(code string, start, end time.Time) (extend.Klines
 	defer db.Close()
 	data := extend.Klines{}
 	err = db.Table("DayKline").Where("Unix>? and Unix<?", start.Unix(), end.Unix()).
-		Cols("Time,Open,High,Low,Close,Volume,Amount").
 		Asc("Unix").Find(&data)
 	logs.PrintErr(err)
 	return data, err

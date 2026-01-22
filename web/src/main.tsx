@@ -18,7 +18,7 @@ function App() {
         <Header style={{ display: 'flex', alignItems: 'center' }}>
           <div style={{ color: '#fff', fontWeight: 600, marginRight: 24, fontSize: '18px', display: 'flex', alignItems: 'center', gap: '8px' }}>
             <LineChartOutlined />
-            Strategy (v2)
+            Strategy
           </div>
           <Menu theme="dark" mode="horizontal" items={[
             { key: 'screener', label: <Link to="/">选股</Link> },
