@@ -77,7 +77,8 @@ export async function getCodes(): Promise<{ code: string, name: string }[]> {
 }
 
 export async function backtest(req: {
-  strategy: string
+  strategy?: string
+  strategies?: string[]
   code: string
   start?: string
   end?: string
@@ -91,6 +92,7 @@ export async function backtest(req: {
 }) {
   const payload: any = {
     strategy: req.strategy,
+    strategies: req.strategies,
     code: req.code,
     start: req.start,
     end: req.end,
@@ -121,6 +123,7 @@ export async function backtest(req: {
   const ret = resp.return ?? resp.ret ?? resp.total_return ?? 0
   const max_drawdown = resp.max_drawdown ?? resp.maxDD ?? resp.MaxDD ?? resp.drawdown ?? 0
   const sharpe = resp.sharpe ?? resp.Sharpe ?? 0
+  const klines = parseKlines(resp.klines || resp.Klines, req.code)
   return resp as {
     equity: typeof eq
     cash: typeof cash
@@ -129,6 +132,7 @@ export async function backtest(req: {
     return: typeof ret
     max_drawdown: typeof max_drawdown
     sharpe: typeof sharpe
+    klines: typeof klines
   }
 }
 
@@ -211,17 +215,43 @@ export function backtestAllWS(req: {
   return ws
 }
 
-export async function screener(body: { strategy: string, lookback?: number, start_time?: number, end_time?: number }) {
+function parseKlines(klines: any[], code: string) {
+  return (klines || []).map((c: any) => {
+    const t = c.Time ?? c.time ?? c.timestamp ?? c.ts ?? c.date
+    const iso = typeof t === 'number' ? new Date(t * (t > 10000000000 ? 1 : 1000)).toISOString() : String(t)
+    const rawAmount = c.Amount ?? c.amount ?? c.Turnover ?? c.trade_amount
+    const amountYuan = typeof rawAmount === 'number' ? Number(rawAmount) / 1000 :
+                       rawAmount != null ? Number(rawAmount) / 1000 : undefined
+    return {
+      Time: iso,
+      Open: Number(c.Open ?? c.open ?? c.o ?? c.OpenPrice ?? 0) / 1000,
+      High: Number(c.High ?? c.high ?? c.h ?? c.HighPrice ?? 0) / 1000,
+      Low: Number(c.Low ?? c.low ?? c.l ?? c.LowPrice ?? 0) / 1000,
+      Close: Number(c.Close ?? c.close ?? c.c ?? c.ClosePrice ?? 0) / 1000,
+      Volume: c.Volume ?? c.volume ?? c.v ?? c.TradeVolume ?? 0,
+      Amount: amountYuan,
+      Code: c.Symbol ?? c.symbol ?? c.ticker ?? c.code ?? code
+    }
+  })
+}
+
+export async function screener(body: { strategy?: string, strategies?: string[], lookback?: number, start_time?: number, end_time?: number }) {
   const { data } = await api.post('/stock/screener', body)
   const body2 = unwrap(data)
-  const arr = Array.isArray(body2) ? body2 : (body2.items || body2.list || [])
-  return arr.map((it: any) => ({
-    code: it.symbol ?? it.ticker ?? it.code,
-    name: it.name ?? it.Name ?? '',
-    score: it.score ?? it.value ?? 0,
-    price: (it.price ?? it.last ?? 0) / 1000,
-    signal: it.signal ?? it.sig ?? 0
-  })) as { code: string, name: string, score: number, price: number, signal: number }[]
+  
+  const rawList = Array.isArray(body2) ? body2 : (body2.list || body2.items || [])
+
+  // 处理每个item中的klines
+  const items = rawList.map((item: any) => ({
+    ...item,
+    price: (item.price ?? 0) / 1000,
+    klines: parseKlines(item.klines || item.Klines, item.code),
+    trades: (item.trades || item.Trades || []).map((t: any) => ({
+      ...t,
+      // 确保trades格式正确，如果需要额外处理可以在这里添加
+    }))
+  }))
+  return Array.isArray(body2) ? { list: items } : { ...body2, list: items }
 }
 
 export async function grid(body: {

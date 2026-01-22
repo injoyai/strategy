@@ -24,7 +24,7 @@ export default function ScreenerPage() {
         const defaultStart = dayjs().subtract(3, 'month')
         const defaultEnd = dayjs().hour(23).minute(23).second(0)
         form.setFieldsValue({ 
-          strategy: strats[0], 
+          strategy: [], 
           lookback: 10,
           range: [defaultStart, defaultEnd]
         })
@@ -50,15 +50,28 @@ export default function ScreenerPage() {
       const endTs = v.range?.[1] ? v.range[1].unix() : undefined
       
       const res = await screener({
-        strategy: v.strategy, 
+        strategies: v.strategy, 
         lookback: v.lookback,
         start_time: startTs,
         end_time: endTs
       })
-      setData(res)
+      const list = Array.isArray(res) ? res : (res.list || [])
+      setData(list)
       setVisibleCount(60)
-      const ordered = getOrdered(res)
-      await loadChartsFor(ordered.slice(0, 60), v.strategy)
+      const ordered = getOrdered(list)
+      // 构造初始图表数据
+      const initialCharts: Record<string, any> = {}
+      list.forEach((item: any) => {
+        if (item.klines && item.klines.length > 0) {
+          initialCharts[item.code] = {
+            candles: item.klines,
+            trades: (item.trades || []).map((t: any) => ({ index: t.index, side: t.side }))
+          }
+        }
+      })
+      setCharts(initialCharts)
+
+      // loadChartsFor(res.slice(0, 10), strategies)
     } catch (e: any) {
       message.error(e?.message || '选股失败')
     } finally {
@@ -82,7 +95,7 @@ export default function ScreenerPage() {
     return arr
   }
 
-  async function loadChartsFor(items: any[], strategy: string) {
+  async function loadChartsFor(items: any[], strategies: string[]) {
     const nextCharts: Record<string, { candles: any[], trades: { index: number, side: string }[] }> = { ...charts }
     const chunkSize = 6
     const v = form.getFieldsValue()
@@ -95,9 +108,8 @@ export default function ScreenerPage() {
       const promises = batch.map(async (item) => {
         if (nextCharts[item.code]) return
         try {
-          const cs = await getKlines({ code: item.code, start, end })
           const bt = await backtest({
-            strategy,
+            strategies,
             code: item.code,
             start,
             end,
@@ -105,7 +117,7 @@ export default function ScreenerPage() {
             size: 10,
           })
           nextCharts[item.code] = {
-            candles: cs,
+            candles: bt.klines,
             trades: bt.trades.map((t: any) => ({ index: t.index, side: t.side }))
           }
         } catch {
@@ -118,15 +130,11 @@ export default function ScreenerPage() {
   }
 
   useEffect(() => {
-    const onScroll = async () => {
+    const onScroll = () => {
       const nearBottom = window.innerHeight + window.scrollY >= document.body.offsetHeight - 300
       if (!nearBottom || loadingMore || data.length === 0) return
-      const v = form.getFieldsValue()
-      const ordered = getOrdered(data)
       setLoadingMore(true)
-      const nextCount = Math.min(visibleCount + 60, ordered.length)
-      const slice = ordered.slice(visibleCount, nextCount)
-      await loadChartsFor(slice, v.strategy)
+      const nextCount = Math.min(visibleCount + 60, data.length)
       setVisibleCount(nextCount)
       setLoadingMore(false)
     }
@@ -152,7 +160,7 @@ export default function ScreenerPage() {
       <Card title="选股条件">
         <Form form={form} layout="inline">
           <Form.Item name="strategy" label="策略" rules={[{ required: true }]}>
-            <Select style={{ width: 200 }} options={strategies.map(s => ({ value: s, label: s }))} />
+            <Select mode="multiple" style={{ width: 200 }} options={strategies.map(s => ({ value: s, label: s }))} maxTagCount="responsive" />
           </Form.Item>
           <Form.Item name="range" label="时间范围">
              <DatePicker.RangePicker format="YYYY-MM-DD" />

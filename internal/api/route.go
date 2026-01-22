@@ -4,11 +4,14 @@ import (
 	"time"
 
 	"github.com/injoyai/frame/fbr"
+	"github.com/injoyai/logs"
 	dist "github.com/injoyai/strategy"
 	"github.com/injoyai/strategy/internal/backtest"
 	"github.com/injoyai/strategy/internal/common"
+	"github.com/injoyai/strategy/internal/data"
 	"github.com/injoyai/strategy/internal/screener"
 	"github.com/injoyai/strategy/internal/strategy"
+	"github.com/injoyai/tdx/extend"
 )
 
 func Run(port int) error {
@@ -115,13 +118,10 @@ func Backtest(c fbr.Ctx) {
 	var req backtestReq
 	c.Parse(&req)
 
-	strat := strategy.Get(req.Strategy)
-	if strat == nil {
-		c.Err("strategy not found")
-	}
+	strat, err := strategy.Group(req.Strategies)
+	c.CheckErr(err)
 
 	var start, end time.Time
-	var err error
 	if req.Start != "" {
 		start, err = time.Parse("2006-01-02", req.Start)
 		c.CheckErr(err)
@@ -148,7 +148,16 @@ func Backtest(c fbr.Ctx) {
 	if req.MinFee <= 0 {
 		req.MinFee = 5
 	}
-	res := backtest.RunBacktestAdvanced(req.Code, common.Data.Codes.GetName(req.Code), ks, strat, backtest.Settings{
+	res := backtest.RunBacktestAdvanced(data.Info{
+		Code:       "",
+		Name:       "",
+		Price:      0,
+		Turnover:   0,
+		FloatStock: 0,
+		TotalStock: 0,
+		FloatValue: 0,
+		TotalValue: 0,
+	}, ks, strat, backtest.Settings{
 		Cash:       cash,
 		Size:       size,
 		FeeRate:    req.FeeRate,
@@ -200,29 +209,31 @@ func BacktestAllWS(c fbr.Ctx) {
 	// WebSocket 接入（fasthttp）
 	c.Websocket(func(conn *fbr.Websocket) {
 
-		codes := common.Data.GetStockCodes()
 		var sumRet, sumSharpe, sumDD float64
 		var cnt int
 
-		for _, code := range codes {
-			ks, err := common.Data.GetDayKlines(code, start, end)
-			if err != nil || len(ks) == 0 {
-				continue
-			}
-			res := backtest.RunBacktestAdvanced(code, common.Data.Codes.GetName(code), ks, strat, settings)
-			item := BacktestItem{
-				Code:        code,
-				Name:        common.Data.Codes.GetName(code),
-				Return:      res.Return,
-				MaxDrawdown: res.MaxDD,
-				Sharpe:      res.Sharpe,
-			}
-			sumRet += res.Return
-			sumSharpe += res.Sharpe
-			sumDD += res.MaxDD
-			cnt++
-			// 流式发送单条结果
-			_ = conn.WriteJSON(map[string]any{"type": "item", "item": item})
+		err := common.Data.RangeDayKlines(
+			100, start, end,
+			func(info data.Info, ks extend.Klines) {
+				res := backtest.RunBacktestAdvanced(info, ks, strat, settings)
+				item := BacktestItem{
+					Code:        info.Code,
+					Name:        common.Data.Codes.GetName(info.Code),
+					Return:      res.Return,
+					MaxDrawdown: res.MaxDD,
+					Sharpe:      res.Sharpe,
+				}
+				sumRet += res.Return
+				sumSharpe += res.Sharpe
+				sumDD += res.MaxDD
+				cnt++
+				// 流式发送单条结果
+				_ = conn.WriteJSON(map[string]any{"type": "item", "item": item})
+			},
+		)
+		if err != nil {
+			logs.Err(err)
+			return
 		}
 
 		var avgRet, avgSharpe, avgDD float64
@@ -242,104 +253,102 @@ func BacktestAllWS(c fbr.Ctx) {
 	})
 
 }
-func BacktestAll(c fbr.Ctx) {
-	var req backtestReq
-	c.Parse(&req)
 
-	strat := strategy.Get(req.Strategy)
-	if strat == nil {
-		c.Err("strategy not found")
-	}
-
-	var start, end time.Time
-	var err error
-	if req.Start != "" {
-		start, err = time.Parse("2006-01-02", req.Start)
-		c.CheckErr(err)
-	} else {
-		start = time.Date(1990, 1, 1, 0, 0, 0, 0, time.Local)
-	}
-	if req.End != "" {
-		end, err = time.Parse("2006-01-02", req.End)
-		c.CheckErr(err)
-	} else {
-		end = time.Now()
-	}
-
-	cash := req.Cash
-	if cash <= 0 {
-		cash = 100000
-	}
-	size := req.Size
-	if size <= 0 {
-		size = 1
-	}
-	if req.FeeRate <= 0 {
-		req.FeeRate = 0.0005
-	}
-	if req.MinFee <= 0 {
-		req.MinFee = 5
-	}
-
-	settings := backtest.Settings{
-		Cash:       cash,
-		Size:       size,
-		FeeRate:    req.FeeRate,
-		MinFee:     req.MinFee,
-		Slippage:   req.Slippage,
-		StopLoss:   req.StopLoss,
-		TakeProfit: req.TakeProfit,
-	}
-
-	codes := common.Data.GetStockCodes()
-	items := make([]BacktestItem, 0, len(codes))
-	var sumRet, sumSharpe, sumDD float64
-	var cnt int
-	for _, code := range codes {
-		ks, err := common.Data.GetDayKlines(code, start, end)
-		if err != nil || len(ks) == 0 {
-			continue
-		}
-		res := backtest.RunBacktestAdvanced(code, common.Data.Codes.GetName(code), ks, strat, settings)
-		item := BacktestItem{
-			Code:        code,
-			Name:        common.Data.Codes.GetName(code),
-			Return:      res.Return,
-			MaxDrawdown: res.MaxDD,
-			Sharpe:      res.Sharpe,
-		}
-		items = append(items, item)
-		sumRet += res.Return
-		sumSharpe += res.Sharpe
-		sumDD += res.MaxDD
-		cnt++
-	}
-
-	// sort by return desc
-	for i := 0; i < len(items); i++ {
-		for j := i + 1; j < len(items); j++ {
-			if items[j].Return > items[i].Return {
-				items[i], items[j] = items[j], items[i]
-			}
-		}
-	}
-	if len(items) > 200 {
-		items = items[:200]
-	}
-
-	var avgRet, avgSharpe, avgDD float64
-	if cnt > 0 {
-		avgRet = sumRet / float64(cnt)
-		avgSharpe = sumSharpe / float64(cnt)
-		avgDD = sumDD / float64(cnt)
-	}
-
-	resp := BacktestAllResp{
-		AvgReturn:      avgRet,
-		AvgSharpe:      avgSharpe,
-		AvgMaxDrawdown: avgDD,
-		Count:          cnt,
-		Items:          items,
-	}
-	c.Succ(resp)
-}
+//func BacktestAll(c fbr.Ctx) {
+//	var req backtestReq
+//	c.Parse(&req)
+//
+//	strat, err := strategy.Group(req.Strategies)
+//	c.CheckErr(err)
+//
+//	var start, end time.Time
+//	if req.Start != "" {
+//		start, err = time.Parse("2006-01-02", req.Start)
+//		c.CheckErr(err)
+//	} else {
+//		start = time.Date(1990, 1, 1, 0, 0, 0, 0, time.Local)
+//	}
+//	if req.End != "" {
+//		end, err = time.Parse("2006-01-02", req.End)
+//		c.CheckErr(err)
+//	} else {
+//		end = time.Now()
+//	}
+//
+//	cash := req.Cash
+//	if cash <= 0 {
+//		cash = 100000
+//	}
+//	size := req.Size
+//	if size <= 0 {
+//		size = 1
+//	}
+//	if req.FeeRate <= 0 {
+//		req.FeeRate = 0.0005
+//	}
+//	if req.MinFee <= 0 {
+//		req.MinFee = 5
+//	}
+//
+//	settings := backtest.Settings{
+//		Cash:       cash,
+//		Size:       size,
+//		FeeRate:    req.FeeRate,
+//		MinFee:     req.MinFee,
+//		Slippage:   req.Slippage,
+//		StopLoss:   req.StopLoss,
+//		TakeProfit: req.TakeProfit,
+//	}
+//
+//	codes := common.Data.GetStockCodes()
+//	items := make([]BacktestItem, 0, len(codes))
+//	var sumRet, sumSharpe, sumDD float64
+//	var cnt int
+//	for _, code := range codes {
+//		ks, err := common.Data.GetDayKlines(code, start, end)
+//		if err != nil || len(ks) == 0 {
+//			continue
+//		}
+//		res := backtest.RunBacktestAdvanced(code, common.Data.Codes.GetName(code), ks, strat, settings)
+//		item := BacktestItem{
+//			Code:        code,
+//			Name:        common.Data.Codes.GetName(code),
+//			Return:      res.Return,
+//			MaxDrawdown: res.MaxDD,
+//			Sharpe:      res.Sharpe,
+//		}
+//		items = append(items, item)
+//		sumRet += res.Return
+//		sumSharpe += res.Sharpe
+//		sumDD += res.MaxDD
+//		cnt++
+//	}
+//
+//	// sort by return desc
+//	for i := 0; i < len(items); i++ {
+//		for j := i + 1; j < len(items); j++ {
+//			if items[j].Return > items[i].Return {
+//				items[i], items[j] = items[j], items[i]
+//			}
+//		}
+//	}
+//	if len(items) > 200 {
+//		items = items[:200]
+//	}
+//
+//	var avgRet, avgSharpe, avgDD float64
+//	if cnt > 0 {
+//		avgRet = sumRet / float64(cnt)
+//		avgSharpe = sumSharpe / float64(cnt)
+//		avgDD = sumDD / float64(cnt)
+//	}
+//
+//	resp := BacktestAllResp{
+//		AvgReturn:      avgRet,
+//		AvgSharpe:      avgSharpe,
+//		AvgMaxDrawdown: avgDD,
+//		Count:          cnt,
+//		Items:          items,
+//	}
+//	c.Succ(resp)
+//}

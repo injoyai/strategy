@@ -1,10 +1,13 @@
 package strategy
 
-import "github.com/injoyai/tdx/extend"
+import (
+	"github.com/injoyai/strategy/internal/data"
+	"github.com/injoyai/tdx/extend"
+)
 
 type Ouy struct{}
 
-func (Ouy) Name() string { return "xxx" }
+func (Ouy) Name() string { return "测试" }
 
 func (Ouy) Type() string { return DayKline }
 
@@ -13,7 +16,7 @@ func (Ouy) Type() string { return DayKline }
 // 2. 涨停之后的下一天出现向上跳空高开（当日开盘价 > 涨停日收盘价）
 // 3. 跳空之后出现连续阳线（这里假设至少2根连续阳线，含跳空当天）
 // 4. 最新一个交易日的成交量明显放大（> 过去5日均量 且 > 昨日成交量）
-func (Ouy) Meet(code, name string, klines extend.Klines) bool {
+func (Ouy) Meet(info data.Info, klines extend.Klines) bool {
 	if len(klines) < 20 {
 		return false
 	}

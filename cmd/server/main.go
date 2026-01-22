@@ -8,11 +8,15 @@ import (
 	"github.com/injoyai/strategy/internal/common"
 )
 
+var (
+	port = cfg.GetInt("port", frame.DefaultPort)
+)
+
 func main() {
 	err := common.Init()
 	logs.PanicErr(err)
+
 	common.Data.Start()
-	port := cfg.GetInt("port", frame.DefaultPort)
-	err = api.Run(port)
-	logs.Err(err)
+
+	logs.Err(api.Run(port))
 }

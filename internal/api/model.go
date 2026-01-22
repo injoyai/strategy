@@ -1,17 +1,18 @@
 package api
 
 type backtestReq struct {
-	Strategy   string  `json:"strategy"`
-	Code       string  `json:"code"`
-	Start      string  `json:"start"`
-	End        string  `json:"end"`
-	Cash       float64 `json:"cash"`
-	Size       int     `json:"size"`
-	FeeRate    float64 `json:"fee_rate"`
-	MinFee     float64 `json:"min_fee"`
-	Slippage   float64 `json:"slippage"`
-	StopLoss   float64 `json:"stop_loss"`
-	TakeProfit float64 `json:"take_profit"`
+	Strategy   string   `json:"strategy"`
+	Strategies []string `json:"strategies"`
+	Code       string   `json:"code"`
+	Start      string   `json:"start"`
+	End        string   `json:"end"`
+	Cash       float64  `json:"cash"`
+	Size       int      `json:"size"`
+	FeeRate    float64  `json:"fee_rate"`
+	MinFee     float64  `json:"min_fee"`
+	Slippage   float64  `json:"slippage"`
+	StopLoss   float64  `json:"stop_loss"`
+	TakeProfit float64  `json:"take_profit"`
 }
 
 type CodesResp struct {

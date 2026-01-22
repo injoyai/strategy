@@ -13,6 +13,7 @@ import (
 	"github.com/injoyai/logs"
 	"github.com/injoyai/tdx"
 	"github.com/injoyai/tdx/extend"
+	"github.com/injoyai/tdx/protocol"
 )
 
 const (
@@ -23,7 +24,7 @@ const (
 )
 
 type (
-	Handler = func(code, name string, ks extend.Klines)
+	Handler = func(info Info, ks extend.Klines)
 )
 
 func NewManage(m *tdx.Manage) (*Data, error) {
@@ -83,11 +84,11 @@ func (this *Data) RangeDayKlines(limit int, start, end time.Time, f Handler) err
 
 	wg := chans.NewWaitLimit(limit)
 
-	for _, info := range es {
-		if info.IsDir() || !strings.HasSuffix(info.Name(), ".db") {
+	for _, e := range es {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".db") {
 			continue
 		}
-		code := strings.TrimSuffix(info.Name(), ".db")
+		code := strings.TrimSuffix(e.Name(), ".db")
 		wg.Add()
 		go func() {
 			defer wg.Done()
@@ -96,7 +97,21 @@ func (this *Data) RangeDayKlines(limit int, start, end time.Time, f Handler) err
 				logs.Err(err)
 				return
 			}
-			f(code, this.Codes.GetName(code), ks)
+			if len(ks) == 0 {
+				return
+			}
+			last := ks[len(ks)-1]
+			info := Info{
+				Code:       code,
+				Name:       this.Codes.GetName(code),
+				Price:      last.Close,
+				Turnover:   last.Turnover,
+				FloatStock: last.FloatStock,
+				TotalStock: last.TotalStock,
+				FloatValue: protocol.Price(last.FloatStock) * last.Close,
+				TotalValue: protocol.Price(last.TotalStock) * last.Close,
+			}
+			f(info, ks)
 		}()
 
 	}

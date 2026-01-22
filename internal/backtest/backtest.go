@@ -4,6 +4,7 @@ import (
 	"math"
 	"time"
 
+	"github.com/injoyai/strategy/internal/data"
 	"github.com/injoyai/strategy/internal/strategy"
 	"github.com/injoyai/tdx/extend"
 )
@@ -32,6 +33,8 @@ type Result struct {
 	MaxDD float64 `json:"max_drawdown"`
 	// Sharpe 夏普比率（以日收益率序列计算：mean/StdDev * sqrt(252)）
 	Sharpe float64 `json:"sharpe"`
+	// Klines K线数据
+	Klines interface{} `json:"klines"`
 }
 
 type Settings struct {
@@ -54,7 +57,7 @@ type Candle struct {
 	Symbol string
 }
 
-func RunBacktestAdvanced(code, name string, ks extend.Klines, strat strategy.Interface, cfg Settings) Result {
+func RunBacktestAdvanced(info data.Info, ks extend.Klines, strat strategy.Interface, cfg Settings) Result {
 
 	if len(ks) == 0 {
 		return Result{
@@ -68,7 +71,7 @@ func RunBacktestAdvanced(code, name string, ks extend.Klines, strat strategy.Int
 		}
 	}
 
-	sigs := strat.Meet(code, name, ks)
+	sigs := strat.Meet(info, ks)
 	_ = sigs
 	n := len(ks)
 	equity := make([]float64, n)
@@ -162,6 +165,7 @@ func RunBacktestAdvanced(code, name string, ks extend.Klines, strat strategy.Int
 		Return:   totalRet,
 		MaxDD:    maxDD,
 		Sharpe:   sharpe,
+		Klines:   ks,
 	}
 }
 
