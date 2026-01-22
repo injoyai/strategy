@@ -1,6 +1,8 @@
 package common
 
 import (
+	"time"
+
 	"github.com/injoyai/conv/cfg"
 	"github.com/injoyai/goutil/database/sqlite"
 	"github.com/injoyai/goutil/database/xorms"
@@ -24,7 +26,14 @@ var (
 
 func Init() error {
 
-	logs.Info("编译日期:", BuildDate)
+	if len(BuildDate) > 0 {
+		logs.Info("编译日期:", BuildDate)
+		buildTime, err := time.Parse(time.DateOnly, BuildDate)
+		logs.PrintErr(err)
+		if err == nil && time.Now().Sub(buildTime) > time.Hour*24*180 {
+			logs.Err("数据获取失败,是否是版本太老?")
+		}
+	}
 
 	m, err := tdx.NewManage(
 		tdx.WithClients(3),
