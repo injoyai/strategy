@@ -1,6 +1,7 @@
 package api
 
 import (
+	"mime"
 	"time"
 
 	"github.com/injoyai/frame/fbr"
@@ -16,13 +17,16 @@ import (
 
 func Run(port int) error {
 
+	// 强制设置MIME类型，解决Windows下注册表缺失导致JS无法加载的问题
+	_ = mime.AddExtensionType(".js", "application/javascript")
+	_ = mime.AddExtensionType(".css", "text/css")
+
 	common.DB.Sync2(new(strategy.Strategy))
 
 	s := fbr.Default(
 		fbr.WithPort(port),
-		fbr.WithEmbed(dist.Dist),
+		fbr.WithFS(dist.Dist, "web/dist"),
 	)
-	s.Embed("/", dist.Dist)
 
 	s.Group("/api", func(g fbr.Grouper) {
 		g.Group("/strategy", func(g fbr.Grouper) {

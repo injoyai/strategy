@@ -8,7 +8,7 @@ require (
 	github.com/injoyai/bar v0.0.11
 	github.com/injoyai/base v1.2.20
 	github.com/injoyai/conv v1.2.5
-	github.com/injoyai/frame v0.0.13
+	github.com/injoyai/frame v0.0.16
 	github.com/injoyai/goutil v1.2.27
 	github.com/injoyai/ios v1.2.5
 	github.com/injoyai/logs v1.0.12

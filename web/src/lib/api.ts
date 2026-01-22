@@ -1,7 +1,7 @@
 import axios from 'axios'
 
 export const api = axios.create({
-  baseURL: 'http://localhost:8080/api'
+  baseURL: '/api'
 })
 
 function unwrap(d: any) {
@@ -196,9 +196,12 @@ export function backtestAllWS(req: {
   stop_loss?: number
   take_profit?: number
 }) {
-  const base = api.defaults.baseURL || 'http://localhost:8080/api'
+  let base = api.defaults.baseURL || 'http://localhost:8080/api'
+  if (base.startsWith('/')) {
+    base = window.location.origin + base
+  }
   const u = new URL(base.replace(/^http/i, 'ws'))
-  u.pathname = '/api/backtest_all/ws'
+  u.pathname = '/api/backtest/all/ws'
   const params = new URLSearchParams()
   params.set('strategy', req.strategy)
   if (req.start) params.set('start', req.start)
@@ -245,6 +248,8 @@ export async function screener(body: { strategy?: string, strategies?: string[],
   const items = rawList.map((item: any) => ({
     ...item,
     price: (item.price ?? 0) / 1000,
+    totalValue: (item.totalValue ?? 0) / 1000,
+    floatValue: (item.floatValue ?? 0) / 1000,
     klines: parseKlines(item.klines || item.Klines, item.code),
     trades: (item.trades || item.Trades || []).map((t: any) => ({
       ...t,

@@ -2,8 +2,7 @@ package dist
 
 import (
 	"embed"
-	_ "embed"
 )
 
-//go:embed web/dist
+//go:embed web/dist/*
 var Dist embed.FS

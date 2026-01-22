@@ -195,6 +195,8 @@ export default function ScreenerPage() {
             { title: '股票代码', dataIndex: 'code', sorter: (a: any, b: any) => String(a.code).localeCompare(String(b.code)), sortDirections: ['ascend','descend'] },
             { title: '股票名称', dataIndex: 'name', sorter: (a: any, b: any) => String(a.name || '').localeCompare(String(b.name || '')), sortDirections: ['ascend','descend'] },
             { title: '价格', dataIndex: 'price', render: (v: number) => v.toFixed(2), sorter: (a: any, b: any) => Number(a.price) - Number(b.price), sortDirections: ['ascend','descend'] },
+            { title: '换手率(%)', dataIndex: 'turnover', render: (v: number) => v?.toFixed(2), sorter: (a: any, b: any) => Number(a.turnover) - Number(b.turnover), sortDirections: ['ascend','descend'] },
+            { title: '市值(亿)', dataIndex: 'totalValue', render: (v: number) => (v / 100000000).toFixed(2), sorter: (a: any, b: any) => Number(a.totalValue) - Number(b.totalValue), sortDirections: ['ascend','descend'] },
             { title: '评分', dataIndex: 'score', render: (v: number) => v.toFixed(4), sorter: (a: any, b: any) => Number(a.score) - Number(b.score), sortDirections: ['ascend','descend'] },
             { title: '信号', dataIndex: 'signal', render: (s: number) => s === 1 ? <Tag color="green">买入</Tag> : s === -1 ? <Tag color="red">卖出</Tag> : <Tag>观望</Tag>, sorter: (a: any, b: any) => Number(a.signal) - Number(b.signal), sortDirections: ['ascend','descend'] },
           ]}

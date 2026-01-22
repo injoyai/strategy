@@ -1,6 +1,6 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
-import { BrowserRouter, Routes, Route, Link } from 'react-router-dom'
+import { HashRouter, Routes, Route, Link } from 'react-router-dom'
 import { Layout, Menu } from 'antd'
 import { LineChartOutlined } from '@ant-design/icons'
 import BacktestPage from './pages/Backtest'
@@ -13,12 +13,12 @@ const { Header, Content } = Layout
 
 function App() {
   return (
-    <BrowserRouter>
+    <HashRouter>
       <Layout style={{ minHeight: '100vh' }}>
         <Header style={{ display: 'flex', alignItems: 'center' }}>
           <div style={{ color: '#fff', fontWeight: 600, marginRight: 24, fontSize: '18px', display: 'flex', alignItems: 'center', gap: '8px' }}>
             <LineChartOutlined />
-            Strategy
+            Strategy (v2)
           </div>
           <Menu theme="dark" mode="horizontal" items={[
             { key: 'screener', label: <Link to="/">选股</Link> },
@@ -37,7 +37,7 @@ function App() {
           </Routes>
         </Content>
       </Layout>
-    </BrowserRouter>
+    </HashRouter>
   )
 }
 
