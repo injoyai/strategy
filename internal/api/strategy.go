@@ -1,6 +1,7 @@
 package api
 
 import (
+	"sort"
 	"time"
 
 	"github.com/injoyai/conv"
@@ -16,6 +17,7 @@ import (
 // @Success 200 {array} string
 func GetStrategyNames(c fbr.Ctx) {
 	names := strategy.Registry()
+	sort.Strings(names)
 	c.Succ(names)
 }
 

@@ -2,13 +2,15 @@ import React from 'react'
 import ReactECharts from 'echarts-for-react'
 import dayjs from 'dayjs'
 
-export default function PriceChart({ candles, trades, equity, showBuy = false, showSell = true, showReturns = true, enableZoom = false, defaultWindowCount, showBollinger = false, showVolume = false, showMA = true }: { candles: { Time: string, Open: number, High: number, Low: number, Close: number, Volume?: number, Amount?: number }[], trades?: { index: number, side: string }[], equity?: number[], showBuy?: boolean, showSell?: boolean, showReturns?: boolean, enableZoom?: boolean, defaultWindowCount?: number, showBollinger?: boolean, showVolume?: boolean, showMA?: boolean }) {
+export default function PriceChart({ candles, trades, equity, showBuy = false, showSell = true, showReturns = true, enableZoom = false, defaultWindowCount, showBollinger = false, showVolume = false, showMA = true, showVertex = false, showVertex6 = false }: { candles: { Time: string, Open: number, High: number, Low: number, Close: number, Volume?: number, Amount?: number }[], trades?: { index: number, side: string }[], equity?: number[], showBuy?: boolean, showSell?: boolean, showReturns?: boolean, enableZoom?: boolean, defaultWindowCount?: number, showBollinger?: boolean, showVolume?: boolean, showMA?: boolean, showVertex?: boolean, showVertex6?: boolean }) {
   if (!candles || candles.length === 0) return null
   const x = candles.map(c => dayjs(c.Time).format('YY-MM-DD'))
   const maxPrice = Math.max(...candles.map(c => Math.max(Number(c.Open || 0), Number(c.High || 0), Number(c.Low || 0), Number(c.Close || 0))))
   const factor = maxPrice > 1000 ? 1000 : 1
   const ohlc = candles.map(c => [c.Open / factor, c.Close / factor, c.Low / factor, c.High / factor])
   const closes = candles.map(c => c.Close / factor)
+  const highs = candles.map(c => Number(c.High || 0) / factor)
+  const lows = candles.map(c => Number(c.Low || 0) / factor)
   const vols = candles.map(c => Number(c.Volume ?? 0))
   const volumeSeriesData = vols.map((v, i) => ({
     value: v,
@@ -73,6 +75,62 @@ export default function PriceChart({ candles, trades, equity, showBuy = false, s
     .map(t => ({
       xAxis: t.index, lineStyle: { type: 'dashed', color: '#f5222d' }, label: { formatter: '卖出' }
     }))
+  
+  const getVertexPts = (windowSize: number) => {
+    const pts: any[] = []
+    for (let i = windowSize; i < highs.length - windowSize; i++) {
+      // Peak
+      const h = highs[i]
+      let isPeak = true
+      for (let j = i - windowSize; j <= i + windowSize; j++) {
+        if (i === j) continue
+        if (highs[j] >= h) {
+          isPeak = false
+          break
+        }
+      }
+      if (isPeak) {
+        pts.push({
+          value: [i, h],
+          symbol: 'triangle',
+          symbolRotate: 180,
+          symbolOffset: [0, '-100%'],
+          symbolSize: 10,
+          itemStyle: { color: '#f5222d', borderColor: '#f5222d' }
+        })
+      }
+      // Valley
+      const l = lows[i]
+      let isValley = true
+      for (let j = i - windowSize; j <= i + windowSize; j++) {
+        if (i === j) continue
+        if (lows[j] <= l) {
+          isValley = false
+          break
+        }
+      }
+      if (isValley) {
+        pts.push({
+          value: [i, l],
+          symbol: 'triangle',
+          symbolRotate: 0,
+          symbolOffset: [0, '100%'],
+          symbolSize: 10,
+          itemStyle: { color: '#52c41a', borderColor: '#52c41a' }
+        })
+      }
+    }
+    return pts
+  }
+
+  const vertexPts: any[] = []
+  if (showVertex) {
+    vertexPts.push(...getVertexPts(8))
+  }
+  if (showVertex6) {
+    vertexPts.push(...getVertexPts(6))
+  }
+
   let retLine: number[] | undefined
   if (equity && equity.length) {
     const base = equity[0] || 1
@@ -91,6 +149,7 @@ export default function PriceChart({ candles, trades, equity, showBuy = false, s
       { type: 'line', name: '布林上轨', data: up, smooth: true, showSymbol: false } as any,
       { type: 'line', name: '布林下轨', data: low, smooth: true, showSymbol: false } as any,
     ] : []),
+    (showVertex || showVertex6) ? { type: 'scatter', name: '顶点', data: vertexPts } as any : undefined,
     retLine && showReturns ? { type: 'line', name: '收益', yAxisIndex: 1, data: retLine, smooth: true, showSymbol: false, lineStyle: { width: 2, color: '#722ed1' }, areaStyle: { color: 'rgba(114,46,209,0.12)' } } as any : undefined,
     buyPts.length && showBuy ? { type: 'scatter', name: '买入', data: buyPts, symbol: 'triangle' } as any : undefined,
     sellPts.length && showSell ? { type: 'scatter', name: '卖出', data: sellPts, symbol: 'triangle', symbolRotate: 180 } as any : undefined,

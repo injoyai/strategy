@@ -14,6 +14,8 @@ export default function ScreenerPage() {
   const [loadingMore, setLoadingMore] = useState(false)
   const [showMA, setShowMA] = useState(true)
   const [showBoll, setShowBoll] = useState(false)
+  const [showVertex, setShowVertex] = useState(true)
+  const [showVertex6, setShowVertex6] = useState(false)
   const [sorter, setSorter] = useState<{ field?: string, order?: 'ascend' | 'descend' }>({})
 
   useEffect(() => {
@@ -206,6 +208,8 @@ export default function ScreenerPage() {
         <Space style={{ marginBottom: 8 }}>
           <Button size="small" type={showMA ? 'primary' : 'default'} onClick={() => setShowMA(!showMA)}>均线</Button>
           <Button size="small" type={showBoll ? 'primary' : 'default'} onClick={() => setShowBoll(!showBoll)}>布林带</Button>
+          <Button size="small" type={showVertex6 ? 'primary' : 'default'} onClick={() => setShowVertex6(!showVertex6)}>顶点(6)</Button>
+          <Button size="small" type={showVertex ? 'primary' : 'default'} onClick={() => setShowVertex(!showVertex)}>顶点(8)</Button>
         </Space>
         <Row gutter={[12,12]}>
           {getOrdered(data).slice(0, visibleCount).map((item) => {
@@ -213,7 +217,7 @@ export default function ScreenerPage() {
             return (
               <Col key={item.code} span={8}>
                 <Card size="small" title={`${item.code}-${item.name || item.code}`}>
-                  {c ? <PriceChart candles={c.candles} trades={c.trades} showMA={showMA} showBollinger={showBoll} /> : <div>加载中...</div>}
+                  {c ? <PriceChart candles={c.candles} trades={c.trades} showMA={showMA} showBollinger={showBoll} showVertex={showVertex} showVertex6={showVertex6} /> : <div>加载中...</div>}
                 </Card>
               </Col>
             )

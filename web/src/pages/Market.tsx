@@ -11,6 +11,8 @@ export default function MarketPage() {
   const [form] = Form.useForm()
   const [showMA, setShowMA] = useState(true)
   const [showBoll, setShowBoll] = useState(false)
+  const [showVertex, setShowVertex] = useState(true)
+  const [showVertex6, setShowVertex6] = useState(false)
 
   useEffect(() => {
     (async () => {
@@ -74,8 +76,10 @@ export default function MarketPage() {
         <Space style={{ marginBottom: 8 }}>
           <Button size="small" type={showMA ? 'primary' : 'default'} onClick={() => setShowMA(!showMA)}>均线</Button>
           <Button size="small" type={showBoll ? 'primary' : 'default'} onClick={() => setShowBoll(!showBoll)}>布林带</Button>
+          <Button size="small" type={showVertex6 ? 'primary' : 'default'} onClick={() => setShowVertex6(!showVertex6)}>顶点(6)</Button>
+          <Button size="small" type={showVertex ? 'primary' : 'default'} onClick={() => setShowVertex(!showVertex)}>顶点(8)</Button>
         </Space>
-        <PriceChart candles={candles} enableZoom defaultWindowCount={120} showMA={showMA} showBollinger={showBoll} />
+        <PriceChart candles={candles} enableZoom defaultWindowCount={120} showMA={showMA} showBollinger={showBoll} showVertex={showVertex} showVertex6={showVertex6} />
       </Card>
     </Space>
   )

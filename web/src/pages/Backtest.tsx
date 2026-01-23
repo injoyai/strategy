@@ -21,6 +21,10 @@ export default function BacktestPage() {
   const [showBuy, setShowBuy] = useState(true)
   const [showSell, setShowSell] = useState(true)
   const [showReturns, setShowReturns] = useState(true)
+  const [showMA, setShowMA] = useState(true)
+  const [showBoll, setShowBoll] = useState(false)
+  const [showVertex, setShowVertex] = useState(true)
+  const [showVertex6, setShowVertex6] = useState(false)
   const [indexSymbol, setIndexSymbol] = useState<string>('SSE')
   const [indexCandles, setIndexCandles] = useState<any[]>([])
   const wsRef = useRef<WebSocket | null>(null)
@@ -392,8 +396,12 @@ export default function BacktestPage() {
               <Checkbox checked={showBuy} onChange={e => setShowBuy(e.target.checked)}>买点</Checkbox>
               <Checkbox checked={showSell} onChange={e => setShowSell(e.target.checked)}>卖点</Checkbox>
               <Checkbox checked={showReturns} onChange={e => setShowReturns(e.target.checked)}>收益</Checkbox>
+              <Button size="small" type={showMA ? 'primary' : 'default'} onClick={() => setShowMA(!showMA)}>均线</Button>
+              <Button size="small" type={showBoll ? 'primary' : 'default'} onClick={() => setShowBoll(!showBoll)}>布林带</Button>
+              <Button size="small" type={showVertex6 ? 'primary' : 'default'} onClick={() => setShowVertex6(!showVertex6)}>顶点(6)</Button>
+              <Button size="small" type={showVertex ? 'primary' : 'default'} onClick={() => setShowVertex(!showVertex)}>顶点(8)</Button>
             </Space>
-            <PriceChart candles={candles} trades={trades} equity={equity} showBuy={showBuy} showSell={showSell} showReturns={showReturns} />
+            <PriceChart candles={candles} trades={trades} equity={equity} showBuy={showBuy} showSell={showSell} showReturns={showReturns} showMA={showMA} showBollinger={showBoll} showVertex={showVertex} showVertex6={showVertex6} />
             <Row gutter={24} style={{ marginTop: 12 }}>
               <Col span={8}><Statistic title="累计收益" value={metrics.ret ? metrics.ret * 100 : 0} suffix="%" precision={2} /></Col>
               <Col span={8}><Statistic title="最大回撤" value={metrics.dd ? metrics.dd * 100 : 0} suffix="%" precision={2} /></Col>
