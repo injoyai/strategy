@@ -3,8 +3,10 @@ import { Card, Form, Select, InputNumber, Button, Table, Tag, Space, message, Sw
 import { getStrategies, screener, getKlines, backtest } from '../lib/api'
 import PriceChart from '../components/PriceChart'
 import dayjs from 'dayjs'
+import { useNavigate } from 'react-router-dom'
 
 export default function ScreenerPage() {
+  const navigate = useNavigate()
   const [strategies, setStrategies] = useState<string[]>([])
   const [data, setData] = useState<any[]>([])
   const [charts, setCharts] = useState<Record<string, { candles: any[], trades: { index: number, side: string }[] }>>({})
@@ -157,6 +159,11 @@ export default function ScreenerPage() {
     URL.revokeObjectURL(url)
   }
 
+  function onAIAnalyze() {
+    const codes = data.map(d => d.code)
+    navigate('/ai', { state: { codes } })
+  }
+
   return (
     <Space direction="vertical" style={{ width: '100%' }} size="large">
       <Card title="选股条件">
@@ -185,6 +192,9 @@ export default function ScreenerPage() {
           </Form.Item>
           <Form.Item>
             <Button onClick={onExportCSV}>导出CSV</Button>
+          </Form.Item>
+          <Form.Item>
+            <Button onClick={onAIAnalyze} disabled={data.length === 0}>AI 分析</Button>
           </Form.Item>
         </Form>
       </Card>
