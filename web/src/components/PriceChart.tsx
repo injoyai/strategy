@@ -2,7 +2,7 @@ import React from 'react'
 import ReactECharts from 'echarts-for-react'
 import dayjs from 'dayjs'
 
-export default function PriceChart({ candles, trades, equity, showBuy = false, showSell = true, showReturns = true, enableZoom = false, defaultWindowCount, showBollinger = false, showVolume = false, showMA = true, showVertex = false, showVertex6 = false }: { candles: { Time: string, Open: number, High: number, Low: number, Close: number, Volume?: number, Amount?: number }[], trades?: { index: number, side: string }[], equity?: number[], showBuy?: boolean, showSell?: boolean, showReturns?: boolean, enableZoom?: boolean, defaultWindowCount?: number, showBollinger?: boolean, showVolume?: boolean, showMA?: boolean, showVertex?: boolean, showVertex6?: boolean }) {
+export default function PriceChart({ candles, trades, equity, signals, showBuy = false, showSell = true, showSignals = false, showReturns = true, enableZoom = false, defaultWindowCount, showBollinger = false, showVolume = false, showMA = true, showVertex = false, showVertex6 = false }: { candles: { Time: string, Open: number, High: number, Low: number, Close: number, Volume?: number, Amount?: number }[], trades?: { index: number, side: string }[], equity?: number[], signals?: number[], showBuy?: boolean, showSell?: boolean, showSignals?: boolean, showReturns?: boolean, enableZoom?: boolean, defaultWindowCount?: number, showBollinger?: boolean, showVolume?: boolean, showMA?: boolean, showVertex?: boolean, showVertex6?: boolean }) {
   if (!candles || candles.length === 0) return null
   const x = candles.map(c => dayjs(c.Time).format('YY-MM-DD'))
   const maxPrice = Math.max(...candles.map(c => Math.max(Number(c.Open || 0), Number(c.High || 0), Number(c.Low || 0), Number(c.Close || 0))))
@@ -131,10 +131,30 @@ export default function PriceChart({ candles, trades, equity, showBuy = false, s
     vertexPts.push(...getVertexPts(6))
   }
 
+  const signalPts = (signals || []).map((s, i) => {
+    if (i >= closes.length) return null
+    if (s === 1) {
+      return {
+        value: [i, lows[i]],
+        symbol: 'arrow',
+        symbolRotate: 0,
+        symbolOffset: [0, '200%'],
+        symbolSize: 8,
+        itemStyle: { color: '#faad14' }
+      }
+    }
+    return null
+  }).filter(v => !!v)
+
   let retLine: number[] | undefined
+  let benchmarkLine: number[] | undefined
   if (equity && equity.length) {
     const base = equity[0] || 1
     retLine = equity.map(v => Number((((v / base) - 1) * 100).toFixed(2)))
+  }
+  if (closes && closes.length) {
+    const base = closes[0] || 1
+    benchmarkLine = closes.map(v => Number((((v / base) - 1) * 100).toFixed(2)))
   }
   const { mid, up, low } = boll(20, 2)
   const hasVol = showVolume
@@ -150,6 +170,8 @@ export default function PriceChart({ candles, trades, equity, showBuy = false, s
       { type: 'line', name: '布林下轨', data: low, smooth: true, showSymbol: false } as any,
     ] : []),
     (showVertex || showVertex6) ? { type: 'scatter', name: '顶点', data: vertexPts } as any : undefined,
+    showSignals && signalPts.length ? { type: 'scatter', name: '信号', data: signalPts } as any : undefined,
+    benchmarkLine && showReturns ? { type: 'line', name: '基准', yAxisIndex: 1, data: benchmarkLine, smooth: true, showSymbol: false, lineStyle: { width: 1, type: 'dashed', color: '#8c8c8c' } } as any : undefined,
     retLine && showReturns ? { type: 'line', name: '收益', yAxisIndex: 1, data: retLine, smooth: true, showSymbol: false, lineStyle: { width: 2, color: '#722ed1' }, areaStyle: { color: 'rgba(114,46,209,0.12)' } } as any : undefined,
     buyPts.length && showBuy ? { type: 'scatter', name: '买入', data: buyPts, symbol: 'triangle' } as any : undefined,
     sellPts.length && showSell ? { type: 'scatter', name: '卖出', data: sellPts, symbol: 'triangle', symbolRotate: 180 } as any : undefined,

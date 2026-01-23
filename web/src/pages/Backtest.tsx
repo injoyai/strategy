@@ -15,11 +15,13 @@ export default function BacktestPage() {
   const [candles, setCandles] = useState<any[]>([])
   const [metrics, setMetrics] = useState<{ret?: number, dd?: number, sharpe?: number}>({})
   const [trades, setTrades] = useState<{ index: number, side: string, price: number }[]>([])
+  const [signals, setSignals] = useState<number[]>([])
   const [gridData, setGridData] = useState<{ fast: number, slow: number, return: number, sharpe: number, max_drawdown: number }[]>([])
   const [form] = Form.useForm()
   const [screenList, setScreenList] = useState<{ code: string, name: string, return: number, max_drawdown: number, sharpe: number }[]>([])
   const [showBuy, setShowBuy] = useState(true)
   const [showSell, setShowSell] = useState(true)
+  const [showSignals, setShowSignals] = useState(true)
   const [showReturns, setShowReturns] = useState(true)
   const [showMA, setShowMA] = useState(true)
   const [showBoll, setShowBoll] = useState(false)
@@ -125,6 +127,7 @@ export default function BacktestPage() {
       setCash(res.cash)
       setMetrics({ ret: res.return, dd: res.max_drawdown, sharpe: res.sharpe })
       setTrades(res.trades.map((t: any) => ({ index: t.index, side: t.side, price: t.price })))
+      setSignals(res.signals || [])
       const c = await getKlines({
         code: code,
         start: v.range?.[0] ? v.range[0].format('YYYY-MM-DD') : undefined,
@@ -395,13 +398,27 @@ export default function BacktestPage() {
             <Space style={{ marginBottom: 12 }}>
               <Checkbox checked={showBuy} onChange={e => setShowBuy(e.target.checked)}>买点</Checkbox>
               <Checkbox checked={showSell} onChange={e => setShowSell(e.target.checked)}>卖点</Checkbox>
+              <Checkbox checked={showSignals} onChange={e => setShowSignals(e.target.checked)}>信号</Checkbox>
               <Checkbox checked={showReturns} onChange={e => setShowReturns(e.target.checked)}>收益</Checkbox>
               <Button size="small" type={showMA ? 'primary' : 'default'} onClick={() => setShowMA(!showMA)}>均线</Button>
               <Button size="small" type={showBoll ? 'primary' : 'default'} onClick={() => setShowBoll(!showBoll)}>布林带</Button>
               <Button size="small" type={showVertex6 ? 'primary' : 'default'} onClick={() => setShowVertex6(!showVertex6)}>顶点(6)</Button>
               <Button size="small" type={showVertex ? 'primary' : 'default'} onClick={() => setShowVertex(!showVertex)}>顶点(8)</Button>
             </Space>
-            <PriceChart candles={candles} trades={trades} equity={equity} showBuy={showBuy} showSell={showSell} showReturns={showReturns} showMA={showMA} showBollinger={showBoll} showVertex={showVertex} showVertex6={showVertex6} />
+            <PriceChart
+              candles={candles}
+              trades={trades}
+              equity={equity}
+              showBuy={showBuy}
+              showSell={showSell}
+              showSignals={showSignals}
+              signals={signals}
+              showReturns={showReturns}
+              showMA={showMA}
+              showBollinger={showBoll}
+              showVertex={showVertex}
+              showVertex6={showVertex6}
+            />
             <Row gutter={24} style={{ marginTop: 12 }}>
               <Col span={8}><Statistic title="累计收益" value={metrics.ret ? metrics.ret * 100 : 0} suffix="%" precision={2} /></Col>
               <Col span={8}><Statistic title="最大回撤" value={metrics.dd ? metrics.dd * 100 : 0} suffix="%" precision={2} /></Col>

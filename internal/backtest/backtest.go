@@ -35,6 +35,8 @@ type Result struct {
 	Sharpe float64 `json:"sharpe"`
 	// Klines K线数据
 	Klines interface{} `json:"klines"`
+	// Signals 策略信号序列 (1: Buy, 0: None, -1: Sell)
+	Signals []int `json:"signals"`
 }
 
 type Settings struct {
@@ -82,12 +84,17 @@ func RunBacktestAdvanced(info data.Info, ks extend.Klines, strat strategy.Interf
 	trades := make([]Trade, 0, 64)
 	var peak float64
 	rets := make([]float64, 0, n)
+	signals := make([]int, n)
 	var entry float64
 	for i := 0; i < n; i++ {
 		price := ks[i].Close.Float64()
 		buyPx := price * (1 + cfg.Slippage)
 		sellPx := price * (1 - cfg.Slippage)
-		s := 1 //sigs[i]
+		s := 0
+		if strat.Meet(info, ks[:i+1]) {
+			s = 1
+		}
+		signals[i] = s
 		if s == 1 && pos == 0 {
 			cost := buyPx * float64(cfg.Size)
 			fee := cost * cfg.FeeRate
@@ -166,6 +173,7 @@ func RunBacktestAdvanced(info data.Info, ks extend.Klines, strat strategy.Interf
 		MaxDD:    maxDD,
 		Sharpe:   sharpe,
 		Klines:   ks,
+		Signals:  signals,
 	}
 }
 

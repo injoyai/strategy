@@ -123,16 +123,18 @@ export async function backtest(req: {
   const ret = resp.return ?? resp.ret ?? resp.total_return ?? 0
   const max_drawdown = resp.max_drawdown ?? resp.maxDD ?? resp.MaxDD ?? resp.drawdown ?? 0
   const sharpe = resp.sharpe ?? resp.Sharpe ?? 0
+  const signals = (resp.signals || resp.Signals || []).map((v: number) => Number(v))
   const klines = parseKlines(resp.klines || resp.Klines, req.code)
-  return resp as {
-    equity: typeof eq
-    cash: typeof cash
-    position: typeof pos
-    trades: typeof trades
-    return: typeof ret
-    max_drawdown: typeof max_drawdown
-    sharpe: typeof sharpe
-    klines: typeof klines
+  return {
+    equity: eq,
+    cash,
+    position: pos,
+    trades,
+    return: ret,
+    max_drawdown,
+    sharpe,
+    klines,
+    signals
   }
 }
 
