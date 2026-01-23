@@ -25,6 +25,9 @@ var (
 )
 
 func Init() error {
+	cfg.Init(
+		cfg.WithYaml("./config/agents.yaml"),
+	)
 
 	if len(BuildDate) > 0 {
 		logs.Info("编译日期:", BuildDate)

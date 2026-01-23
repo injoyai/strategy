@@ -51,6 +51,7 @@ func Run(port int) error {
 
 		g.Group("/ai", func(g fbr.Grouper) {
 			g.POST("/analyze", PostAIAnalyze)
+			g.GET("/agents", GetAIAgents)
 		})
 
 	})

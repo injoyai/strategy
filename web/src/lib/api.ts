@@ -312,8 +312,28 @@ export async function getKlines(params: { code: string, start?: string, end?: st
   return parseKlines(arr, params.code)
 }
 
-export async function aiAnalyze(body: { codes: string[], prompt?: string, config: { api_key: string, base_url?: string, model?: string } }) {
-  const { data } = await api.post('/ai/analyze', body)
-  const body2 = unwrap(data)
-  return String(body2 || '')
+export interface AIAgentConfig {
+  name: string
+  provider: string
+  base_url: string
+  api_key: string
+  model: string
+}
+
+export async function aiAnalyze(req: {
+  codes: string[]
+  agent_names: string[]
+  prompt?: string
+}) {
+  const { data } = await api.post('/ai/analyze', req)
+  return unwrap(data) as {
+    summary: string
+    details: { name: string, content: string, error?: string }[]
+  }
+}
+
+export async function getAIAgents(): Promise<AIAgentConfig[]> {
+  const { data } = await api.get('/ai/agents')
+  const body = unwrap(data)
+  return Array.isArray(body) ? body : []
 }
