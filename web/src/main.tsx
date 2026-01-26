@@ -7,7 +7,6 @@ import BacktestPage from './pages/Backtest'
 import StrategyPage from './pages/Strategy'
 import ScreenerPage from './pages/Screener'
 import MarketPage from './pages/Market'
-import AIAnalysisPage from './pages/AIAnalysis'
 import 'antd/dist/reset.css'
 
 const { Header, Content } = Layout
@@ -26,7 +25,6 @@ function App() {
             { key: 'backtest', label: <Link to="/backtest">回测</Link> },
             { key: 'strategy', label: <Link to="/strategy">策略</Link> },
             { key: 'market', label: <Link to="/market">行情</Link> },
-            { key: 'ai', label: <Link to="/ai">AI分析</Link> },
           ]} />
         </Header>
         <Content style={{ padding: 24 }}>
@@ -36,7 +34,6 @@ function App() {
             <Route path="/strategy" element={<StrategyPage />} />
             <Route path="/screener" element={<ScreenerPage />} />
             <Route path="/market" element={<MarketPage />} />
-            <Route path="/ai" element={<AIAnalysisPage />} />
           </Routes>
         </Content>
       </Layout>

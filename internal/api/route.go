@@ -49,11 +49,6 @@ func Run(port int) error {
 			g.GET("/all/ws", BacktestAllWS)
 		})
 
-		g.Group("/ai", func(g fbr.Grouper) {
-			g.POST("/analyze", PostAIAnalyze)
-			g.GET("/agents", GetAIAgents)
-		})
-
 	})
 
 	return s.Run()

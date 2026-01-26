@@ -5,32 +5,37 @@ import (
 	"github.com/injoyai/tdx/extend"
 )
 
-type Ouy struct{}
+// Ouy 欧阳总策略结构体
+type Ouy struct {
+	LimitUpThreshold    float64 // 涨停阈值（默认0.098，即9.8%）
+	RecentDaysToCheck   int     // 检查最近多少个交易日（默认20天）
+	ConsecutiveBullDays int     // 跳空后要求的连续阳线天数（含跳空当天，默认2天）
+	VolumeAvgDays       int     // 成交量均线计算天数（默认5天）
+}
 
-func (Ouy) Name() string { return "欧阳总策略" }
+func (o *Ouy) Name() string { return "欧阳总策略" }
 
-func (Ouy) Type() string { return DayKline }
+func (o *Ouy) Type() string { return DayKline }
 
 // Meet 选股策略，满足以下4个条件：
-// 1. 近20个交易日内出现过一次涨停（这里用涨幅≥9.8%近似判断）
+// 1. 近N个交易日内出现过一次涨停（涨幅 ≥ LimitUpThreshold）
 // 2. 涨停之后的下一天出现向上跳空高开（当日开盘价 > 涨停日收盘价）
-// 3. 跳空之后出现连续阳线（这里假设至少2根连续阳线，含跳空当天）
-// 4. 最新一个交易日的成交量明显放大（> 过去5日均量 且 > 昨日成交量）
-func (Ouy) Meet(info data.Info, klines extend.Klines) bool {
-	if len(klines) < 20 {
+// 3. 跳空之后出现连续阳线（至少 ConsecutiveBullDays 根连续阳线，含跳空当天）
+// 4. 最新一个交易日的成交量明显放大（> 过去M日均量 且 > 昨日成交量）
+func (o *Ouy) Meet(info data.Info, klines extend.Klines) bool {
+	if o.RecentDaysToCheck <= 0 {
+		o.RecentDaysToCheck = 20
+	}
+
+	if len(klines) < o.RecentDaysToCheck {
 		return false
 	}
 
-	// 常量配置，可以根据需要微调
-	const LimitUpThreshold = 0.098 // 涨停阈值（9.8%）
-	const RecentDaysToCheck = 20
-	const ConsecutiveBullDays = 2 // 跳空后要求的连续阳线数量（含跳空当天）
-
 	foundPattern := false
 
-	// 从最近的K线往前检查，限定在最近20个交易日内
+	// 从最近的K线往前检查，限定在最近N个交易日内
 	n := len(klines)
-	startIndex := n - RecentDaysToCheck
+	startIndex := n - o.RecentDaysToCheck
 	if startIndex < 0 {
 		startIndex = 0
 	}
@@ -50,7 +55,7 @@ func (Ouy) Meet(info data.Info, klines extend.Klines) bool {
 		}
 		change := (float64(curr.Close) - float64(prev.Close)) / float64(prev.Close)
 
-		if change >= LimitUpThreshold {
+		if change >= o.LimitUpThreshold {
 			// 找到涨停日，检查下一交易日是否跳空高开
 			next := klines[i+1]
 
@@ -58,7 +63,7 @@ func (Ouy) Meet(info data.Info, klines extend.Klines) bool {
 			if float64(next.Open) > float64(curr.Close) {
 				// 条件3：跳空后有连续阳线，这里从跳空当天开始数
 				bullOk := true
-				for j := 0; j < ConsecutiveBullDays; j++ {
+				for j := 0; j < o.ConsecutiveBullDays; j++ {
 					idx := i + 1 + j
 					if idx >= n {
 						bullOk = false
@@ -84,14 +89,16 @@ func (Ouy) Meet(info data.Info, klines extend.Klines) bool {
 	}
 
 	// 条件4：最近成交量放大
-	// 要求：最新一日成交量 > 过去5日平均成交量 且 > 昨日成交量
+	// 要求：最新一日成交量 > 过去M日平均成交量 且 > 昨日成交量
 
 	lastIndex := n - 1
 	lastVol := float64(klines[lastIndex].Volume)
 
 	sumVol := 0.0
 	count := 0
-	for i := 1; i <= 5; i++ {
+
+	// 计算过去M日的成交量总和（不含今日）
+	for i := 1; i <= o.VolumeAvgDays; i++ {
 		idx := lastIndex - i
 		if idx >= 0 {
 			sumVol += float64(klines[idx].Volume)
@@ -103,6 +110,7 @@ func (Ouy) Meet(info data.Info, klines extend.Klines) bool {
 		avgVol := sumVol / float64(count)
 		prevVol := float64(klines[lastIndex-1].Volume)
 
+		// 必须放量：大于均量 且 大于昨量
 		if lastVol > avgVol && lastVol > prevVol {
 			return true
 		}
@@ -112,5 +120,11 @@ func (Ouy) Meet(info data.Info, klines extend.Klines) bool {
 }
 
 func init() {
-	Register(Ouy{})
+	// 使用默认配置注册
+	Register(&Ouy{
+		LimitUpThreshold:    0.098, // 涨停阈值（默认0.098，即9.8%）
+		RecentDaysToCheck:   20,    // 检查最近多少个交易日（默认20天）
+		ConsecutiveBullDays: 2,     // 跳空后要求的连续阳线天数（含跳空当天，默认2天）
+		VolumeAvgDays:       5,     // 成交量均线计算天数（默认5天）
+	})
 }
