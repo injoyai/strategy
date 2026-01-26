@@ -21,7 +21,7 @@ import (
 // Start 更新数据
 func (this *Data) Start() {
 	p := extend.NewPullKline(extend.PullKlineConfig{
-		Tables:     []string{extend.Day},
+		Tables:     []string{extend.Day, extend.Minute},
 		Goroutines: this.Goroutines,
 		Dir:        filepath.Join(tdx.DefaultDatabaseDir, Kline),
 	})
