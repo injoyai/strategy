@@ -308,22 +308,32 @@ export async function getCandles(params: { code: string, start?: string, end?: s
 export async function getKlines(params: { code: string, start?: string, end?: string }) {
   const { data } = await api.get('/stock/klines', { params })
   const body = unwrap(data)
-  const arr = Array.isArray(body) ? body : (body.items || body.list || [])
-  return arr.map((c: any) => {
-    const t = c.Time ?? c.time ?? c.timestamp ?? c.ts ?? c.date
-    const iso = typeof t === 'number' ? new Date(t * (t > 10000000000 ? 1 : 1000)).toISOString() : String(t)
-    const rawAmount = c.Amount ?? c.amount ?? c.Turnover ?? c.trade_amount
-    const amountYuan = typeof rawAmount === 'number' ? Number(rawAmount) / 1000 :
-                       rawAmount != null ? Number(rawAmount) / 1000 : undefined
-    return {
-      Time: iso,
-      Open: Number(c.Open ?? c.open ?? c.o ?? c.OpenPrice ?? 0) / 1000,
-      High: Number(c.High ?? c.high ?? c.h ?? c.HighPrice ?? 0) / 1000,
-      Low: Number(c.Low ?? c.low ?? c.l ?? c.LowPrice ?? 0) / 1000,
-      Close: Number(c.Close ?? c.close ?? c.c ?? c.ClosePrice ?? 0) / 1000,
-      Volume: c.Volume ?? c.volume ?? c.v ?? c.TradeVolume ?? 0,
-      Amount: amountYuan,
-      Code: c.Symbol ?? c.symbol ?? c.ticker ?? c.code ?? params.code
-    }
-  }) as { Time: string, Open: number, High: number, Low: number, Close: number, Volume: number, Amount?: number, Code: string }[]
+  const arr = Array.isArray(body) ? body : (body.items || body.list || body.klines || [])
+  return parseKlines(arr, params.code)
+}
+
+export interface AIAgentConfig {
+  name: string
+  provider: string
+  base_url: string
+  api_key: string
+  model: string
+}
+
+export async function aiAnalyze(req: {
+  codes: string[]
+  agent_names: string[]
+  prompt?: string
+}) {
+  const { data } = await api.post('/ai/analyze', req)
+  return unwrap(data) as {
+    summary: string
+    details: { name: string, content: string, error?: string }[]
+  }
+}
+
+export async function getAIAgents(): Promise<AIAgentConfig[]> {
+  const { data } = await api.get('/ai/agents')
+  const body = unwrap(data)
+  return Array.isArray(body) ? body : []
 }

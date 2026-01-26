@@ -14,8 +14,6 @@ export default function ScreenerPage() {
   const [loadingMore, setLoadingMore] = useState(false)
   const [showMA, setShowMA] = useState(true)
   const [showBoll, setShowBoll] = useState(false)
-  const [showVertex, setShowVertex] = useState(true)
-  const [showVertex6, setShowVertex6] = useState(false)
   const [sorter, setSorter] = useState<{ field?: string, order?: 'ascend' | 'descend' }>({})
 
   useEffect(() => {
@@ -26,7 +24,7 @@ export default function ScreenerPage() {
         const defaultStart = dayjs().subtract(3, 'month')
         const defaultEnd = dayjs().hour(23).minute(23).second(0)
         form.setFieldsValue({ 
-          strategy: [], 
+          strategy: strats[0], 
           lookback: 10,
           range: [defaultStart, defaultEnd]
         })
@@ -52,7 +50,7 @@ export default function ScreenerPage() {
       const endTs = v.range?.[1] ? v.range[1].unix() : undefined
       
       const res = await screener({
-        strategies: v.strategy, 
+        strategies: [v.strategy],
         lookback: v.lookback,
         start_time: startTs,
         end_time: endTs
@@ -61,19 +59,7 @@ export default function ScreenerPage() {
       setData(list)
       setVisibleCount(60)
       const ordered = getOrdered(list)
-      // 构造初始图表数据
-      const initialCharts: Record<string, any> = {}
-      list.forEach((item: any) => {
-        if (item.klines && item.klines.length > 0) {
-          initialCharts[item.code] = {
-            candles: item.klines,
-            trades: (item.trades || []).map((t: any) => ({ index: t.index, side: t.side }))
-          }
-        }
-      })
-      setCharts(initialCharts)
-
-      // loadChartsFor(res.slice(0, 10), strategies)
+      await loadChartsFor(ordered.slice(0, 60), v.strategy)
     } catch (e: any) {
       message.error(e?.message || '选股失败')
     } finally {
@@ -82,6 +68,7 @@ export default function ScreenerPage() {
   }
 
   function getOrdered(items: any[]) {
+    if (!Array.isArray(items)) return []
     const { field, order } = sorter
     if (!field || !order) return items
     const arr = [...items]
@@ -97,7 +84,7 @@ export default function ScreenerPage() {
     return arr
   }
 
-  async function loadChartsFor(items: any[], strategies: string[]) {
+  async function loadChartsFor(items: any[], strategy: string) {
     const nextCharts: Record<string, { candles: any[], trades: { index: number, side: string }[] }> = { ...charts }
     const chunkSize = 6
     const v = form.getFieldsValue()
@@ -110,8 +97,9 @@ export default function ScreenerPage() {
       const promises = batch.map(async (item) => {
         if (nextCharts[item.code]) return
         try {
+          const cs = await getKlines({ code: item.code, start, end })
           const bt = await backtest({
-            strategies,
+            strategy,
             code: item.code,
             start,
             end,
@@ -119,7 +107,7 @@ export default function ScreenerPage() {
             size: 10,
           })
           nextCharts[item.code] = {
-            candles: bt.klines,
+            candles: cs,
             trades: bt.trades.map((t: any) => ({ index: t.index, side: t.side }))
           }
         } catch {
@@ -132,11 +120,15 @@ export default function ScreenerPage() {
   }
 
   useEffect(() => {
-    const onScroll = () => {
+    const onScroll = async () => {
       const nearBottom = window.innerHeight + window.scrollY >= document.body.offsetHeight - 300
       if (!nearBottom || loadingMore || data.length === 0) return
+      const v = form.getFieldsValue()
+      const ordered = getOrdered(data)
       setLoadingMore(true)
-      const nextCount = Math.min(visibleCount + 60, data.length)
+      const nextCount = Math.min(visibleCount + 60, ordered.length)
+      const slice = ordered.slice(visibleCount, nextCount)
+      await loadChartsFor(slice, v.strategy)
       setVisibleCount(nextCount)
       setLoadingMore(false)
     }
@@ -162,7 +154,7 @@ export default function ScreenerPage() {
       <Card title="选股条件">
         <Form form={form} layout="inline">
           <Form.Item name="strategy" label="策略" rules={[{ required: true }]}>
-            <Select mode="multiple" style={{ width: 200 }} options={strategies.map(s => ({ value: s, label: s }))} maxTagCount="responsive" />
+            <Select style={{ width: 200 }} options={strategies.map(s => ({ value: s, label: s }))} />
           </Form.Item>
           <Form.Item name="range" label="时间范围">
              <DatePicker.RangePicker format="YYYY-MM-DD" />
@@ -197,8 +189,6 @@ export default function ScreenerPage() {
             { title: '股票代码', dataIndex: 'code', sorter: (a: any, b: any) => String(a.code).localeCompare(String(b.code)), sortDirections: ['ascend','descend'] },
             { title: '股票名称', dataIndex: 'name', sorter: (a: any, b: any) => String(a.name || '').localeCompare(String(b.name || '')), sortDirections: ['ascend','descend'] },
             { title: '价格', dataIndex: 'price', render: (v: number) => v.toFixed(2), sorter: (a: any, b: any) => Number(a.price) - Number(b.price), sortDirections: ['ascend','descend'] },
-            { title: '换手率(%)', dataIndex: 'turnover', render: (v: number) => v?.toFixed(2), sorter: (a: any, b: any) => Number(a.turnover) - Number(b.turnover), sortDirections: ['ascend','descend'] },
-            { title: '流通市值(亿)', dataIndex: 'floatValue', render: (v: number) => (v / 100000000).toFixed(2), sorter: (a: any, b: any) => Number(a.floatValue) - Number(b.floatValue), sortDirections: ['ascend','descend'] },
             { title: '评分', dataIndex: 'score', render: (v: number) => v.toFixed(4), sorter: (a: any, b: any) => Number(a.score) - Number(b.score), sortDirections: ['ascend','descend'] },
             { title: '信号', dataIndex: 'signal', render: (s: number) => s === 1 ? <Tag color="green">买入</Tag> : s === -1 ? <Tag color="red">卖出</Tag> : <Tag>观望</Tag>, sorter: (a: any, b: any) => Number(a.signal) - Number(b.signal), sortDirections: ['ascend','descend'] },
           ]}
@@ -208,16 +198,14 @@ export default function ScreenerPage() {
         <Space style={{ marginBottom: 8 }}>
           <Button size="small" type={showMA ? 'primary' : 'default'} onClick={() => setShowMA(!showMA)}>均线</Button>
           <Button size="small" type={showBoll ? 'primary' : 'default'} onClick={() => setShowBoll(!showBoll)}>布林带</Button>
-          <Button size="small" type={showVertex6 ? 'primary' : 'default'} onClick={() => setShowVertex6(!showVertex6)}>顶点(6)</Button>
-          <Button size="small" type={showVertex ? 'primary' : 'default'} onClick={() => setShowVertex(!showVertex)}>顶点(8)</Button>
         </Space>
         <Row gutter={[12,12]}>
           {getOrdered(data).slice(0, visibleCount).map((item) => {
             const c = charts[item.code]
             return (
               <Col key={item.code} span={8}>
-                <Card size="small" title={`${item.code}-${item.name || item.code}`}>
-                  {c ? <PriceChart candles={c.candles} trades={c.trades} showMA={showMA} showBollinger={showBoll} showVertex={showVertex} showVertex6={showVertex6} /> : <div>加载中...</div>}
+                <Card size="small" title={`${item.name || item.code}-${item.code}`}>
+                  {c ? <PriceChart candles={c.candles} trades={c.trades} showMA={showMA} showBollinger={showBoll} /> : <div>加载中...</div>}
                 </Card>
               </Col>
             )

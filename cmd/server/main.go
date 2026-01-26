@@ -6,6 +6,7 @@ import (
 	"github.com/injoyai/logs"
 	"github.com/injoyai/strategy/internal/api"
 	"github.com/injoyai/strategy/internal/common"
+	"github.com/injoyai/strategy/internal/strategy"
 )
 
 var (
@@ -17,6 +18,9 @@ func main() {
 	logs.PanicErr(err)
 
 	common.Data.Start()
+
+	err = strategy.Init()
+	logs.PanicErr(err)
 
 	logs.Err(api.Run(port))
 }

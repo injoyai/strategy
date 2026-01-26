@@ -54,6 +54,7 @@ export default function StrategyPage() {
               rowKey="name"
               dataSource={strategies}
               pagination={{ pageSize: 10 }}
+              rowClassName={(record) => record.name === scriptName ? 'ant-table-row-selected' : ''}
               onRow={r => ({ onClick: () => {
                 const name = (r as any).name
                 const script = (r as any).script || ''

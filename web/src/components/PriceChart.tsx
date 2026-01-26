@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useRef } from 'react'
 import ReactECharts from 'echarts-for-react'
 import dayjs from 'dayjs'
 
@@ -178,7 +178,17 @@ export default function PriceChart({ candles, trades, equity, signals, showBuy =
   ].filter(Boolean) as any[]
   const volumeSeries = hasVol ? [{ type: 'bar', name: '成交量', data: volumeSeriesData, xAxisIndex: 1, yAxisIndex: 2 } as any] : []
   const series = [...priceSeries, ...volumeSeries]
-  const startIdx = defaultWindowCount ? Math.max(0, x.length - defaultWindowCount) : 0
+  const startIdxRef = useRef<number | undefined>(undefined)
+  const prevLenRef = useRef<number>(0)
+  const prevLen = prevLenRef.current
+  const xLen = x.length
+  let shouldInitZoom = false
+  if (startIdxRef.current === undefined || prevLen !== xLen) {
+    startIdxRef.current = defaultWindowCount ? Math.max(0, xLen - defaultWindowCount) : 0
+    shouldInitZoom = true
+    prevLenRef.current = xLen
+  }
+  const startIdx = startIdxRef.current as number
   const option = {
     tooltip: {
       trigger: 'axis',
@@ -232,11 +242,11 @@ export default function PriceChart({ candles, trades, equity, signals, showBuy =
     ],
     dataZoom: enableZoom ? (
       hasVol ? [
-        { type: 'inside', xAxisIndex: [0,1], startValue: startIdx, endValue: x.length - 1 },
-        { type: 'slider', xAxisIndex: [0,1], startValue: startIdx, endValue: x.length - 1, bottom: 20, height: 24 }
+        { type: 'inside', xAxisIndex: [0,1], ...(shouldInitZoom ? { startValue: startIdx, endValue: x.length - 1 } : {}) },
+        { type: 'slider', xAxisIndex: [0,1], bottom: 20, height: 24, ...(shouldInitZoom ? { startValue: startIdx, endValue: x.length - 1 } : {}) }
       ] : [
-        { type: 'inside', xAxisIndex: 0, startValue: startIdx, endValue: x.length - 1 },
-        { type: 'slider', xAxisIndex: 0, startValue: startIdx, endValue: x.length - 1 }
+        { type: 'inside', xAxisIndex: 0, ...(shouldInitZoom ? { startValue: startIdx, endValue: x.length - 1 } : {}) },
+        { type: 'slider', xAxisIndex: 0, ...(shouldInitZoom ? { startValue: startIdx, endValue: x.length - 1 } : {}) }
       ]
     ) : undefined,
     series: series.map(s => {
@@ -245,5 +255,5 @@ export default function PriceChart({ candles, trades, equity, signals, showBuy =
       return s
     })
   }
-  return <ReactECharts option={option} notMerge style={{ height: hasVol ? 520 : 460 }} />
+  return <ReactECharts option={option} replaceMerge={['series']} style={{ height: hasVol ? 520 : 460 }} />
 }

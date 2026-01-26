@@ -128,11 +128,12 @@ func (this *Data) RangeKlines(limit int, start, end time.Time, f Handler) error 
 				TotalValue: protocol.Price(last.TotalStock) * last.Close,
 			}
 
-			minKlines, err := this.GetMinKlines(code, start, end)
-			if err != nil {
-				logs.Err(err)
-				return
-			}
+			var minKlines extend.Klines
+			//minKlines, err := this.GetMinKlines(code, start, end)
+			//if err != nil {
+			//	logs.Err(err)
+			//	return
+			//}
 
 			f(info, dayKlines, minKlines)
 		}()

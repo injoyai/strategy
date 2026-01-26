@@ -1,0 +1,2 @@
+database:
+  filename: "./data/database/strategy.db"

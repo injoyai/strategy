@@ -21,8 +21,6 @@ func Run(port int) error {
 	_ = mime.AddExtensionType(".js", "application/javascript")
 	_ = mime.AddExtensionType(".css", "text/css")
 
-	common.DB.Sync2(new(strategy.Strategy))
-
 	s := fbr.Default(
 		fbr.WithPort(port),
 		fbr.WithFS(dist.Dist, "web/dist"),

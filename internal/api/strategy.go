@@ -6,6 +6,7 @@ import (
 
 	"github.com/injoyai/conv"
 	"github.com/injoyai/frame/fbr"
+	"github.com/injoyai/logs"
 	"github.com/injoyai/strategy/internal/common"
 	"github.com/injoyai/strategy/internal/strategy"
 )
@@ -27,7 +28,7 @@ func GetStrategyNames(c fbr.Ctx) {
 // @Tags 策略
 // @Success 200 {array} strategy.Strategy
 func GetStrategyAll(c fbr.Ctx) {
-	data := []*strategy.Strategy(nil)
+	data := []*strategy.Script(nil)
 	err := common.DB.Find(&data)
 	c.CheckErr(err)
 	c.Succ(data)
@@ -46,7 +47,7 @@ func PostStrategy(c fbr.Ctx) {
 		c.Err("name is required")
 	}
 
-	s := &strategy.Strategy{
+	s := &strategy.Script{
 		Name:    req.Name,
 		Type:    strategy.DayKline,
 		Script:  strategy.DefaultScript,
@@ -71,7 +72,7 @@ func PutStrategy(c fbr.Ctx) {
 	var req strategy.CreateReq
 	c.Parse(&req)
 
-	s := new(strategy.Strategy)
+	s := new(strategy.Script)
 	_, err := common.DB.Where("Name=?", req.Name).Get(s)
 	c.CheckErr(err)
 
@@ -79,10 +80,11 @@ func PutStrategy(c fbr.Ctx) {
 	s.Enable = req.Enable
 	s.Package = req.Name + conv.String(time.Now().Unix())
 
-	_, err = common.DB.Where("Name=?", req.Name).Cols("Script,Enable,Package").Update(s)
+	_, err = common.DB.Where("Name=?", req.Name).Cols("Script,Package").Update(s)
 	c.CheckErr(err)
 
 	if req.Enable {
+		logs.Debug(s)
 		err = strategy.RegisterScript(s)
 		c.CheckErr(err)
 	} else {
@@ -96,7 +98,7 @@ func PutStrategyEnable(c fbr.Ctx) {
 	var req strategy.EnableReq
 	c.Parse(&req)
 
-	s := new(strategy.Strategy)
+	s := new(strategy.Script)
 	_, err := common.DB.Where("Name=?", req.Name).Get(s)
 	c.CheckErr(err)
 
@@ -104,7 +106,7 @@ func PutStrategyEnable(c fbr.Ctx) {
 		c.Succ(nil)
 	}
 
-	_, err = common.DB.Where("Name=?", req.Name).Cols("Enable").Update(&strategy.Strategy{
+	_, err = common.DB.Where("Name=?", req.Name).Cols("Enable").Update(&strategy.Script{
 		Enable: req.Enable,
 	})
 	c.CheckErr(err)
@@ -124,7 +126,7 @@ func DelStrategy(c fbr.Ctx) {
 	if len(name) == 0 {
 		c.Succ(nil)
 	}
-	_, err := common.DB.Where("Name=?", name).Delete(&strategy.Strategy{})
+	_, err := common.DB.Where("Name=?", name).Delete(&strategy.Script{})
 	c.CheckErr(err)
 	strategy.Del(name)
 	c.Succ(nil)

@@ -14,9 +14,9 @@ const (
 )
 
 type Interface interface {
-	Name() string                                       //策略名称
-	Type() string                                       //策略类型
-	Signal(info data.Info, day, min extend.Klines) bool //策略
+	Name() string                                         //策略名称
+	Type() string                                         //策略类型
+	Signal(info extend.Info, day, min extend.Klines) bool //策略
 }
 
 var strategies = map[string]Interface{}
@@ -25,12 +25,16 @@ func Register(s Interface) {
 	strategies[s.Name()] = s
 }
 
-func RegisterScript(s *Strategy) error {
+func RegisterScript(s *Script) error {
 	res, err := common.Script.Eval(s.Content())
 	if err != nil {
 		return err
 	}
-	f, ok := res.Interface().(SignalFunc)
+	res, err = common.Script.Eval(s.Package + ".Signal")
+	if err != nil {
+		return err
+	}
+	f, ok := res.Interface().(func(extend.Info, extend.Klines, extend.Klines) bool)
 	if !ok {
 		return errors.New("脚本函数有误")
 	}
@@ -94,4 +98,30 @@ func Group(names []string) (Interface, error) {
 		c.List = append(c.List, s)
 	}
 	return c, nil
+}
+
+/*
+
+
+
+ */
+
+func Init() error {
+
+	err := common.DB.Sync2(new(Script))
+	if err != nil {
+		return err
+	}
+
+	ls := []*Script(nil)
+	err = common.DB.Find(&ls)
+	if err != nil {
+		return err
+	}
+	for _, s := range ls {
+		if err = RegisterScript(s); err != nil {
+			return err
+		}
+	}
+	return nil
 }
