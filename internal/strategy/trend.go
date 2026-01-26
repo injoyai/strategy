@@ -35,7 +35,10 @@ func (s *TrendUp) Type() string {
 	return DayKline
 }
 
-func (s *TrendUp) Meet(info data.Info, ks extend.Klines) bool {
+func (s *TrendUp) Signal(info data.Info, day, min extend.Klines) bool {
+
+	ks := day
+
 	if s.MinKlines <= 0 {
 		s.MinKlines = 30
 	}

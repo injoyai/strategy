@@ -17,7 +17,7 @@ func (this Test) Name() string {
 
 func (this Test) Type() string { return DayKline }
 
-func (this Test) Meet(info data.Info, ks extend.Klines) bool {
+func (this Test) Signal(info data.Info, day, min extend.Klines) bool {
 	_, ok := this.selected[info.Code]
 	return ok
 }

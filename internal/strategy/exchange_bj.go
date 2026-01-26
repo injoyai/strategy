@@ -18,7 +18,7 @@ func (BJExchange) Name() string {
 
 func (BJExchange) Type() string { return DayKline }
 
-func (BJExchange) Meet(info data.Info, ks extend.Klines) bool {
+func (BJExchange) Signal(info data.Info, day, min extend.Klines) bool {
 	return strings.HasPrefix(info.Code, protocol.ExchangeSH.String())
 }
 

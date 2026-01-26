@@ -14,9 +14,9 @@ const (
 )
 
 type Interface interface {
-	Name() string                               //策略名称
-	Type() string                               //策略类型
-	Meet(info data.Info, ks extend.Klines) bool //策略
+	Name() string                                       //策略名称
+	Type() string                                       //策略类型
+	Signal(info data.Info, day, min extend.Klines) bool //策略
 }
 
 var strategies = map[string]Interface{}
@@ -30,7 +30,7 @@ func RegisterScript(s *Strategy) error {
 	if err != nil {
 		return err
 	}
-	f, ok := res.Interface().(MeetFunc)
+	f, ok := res.Interface().(SignalFunc)
 	if !ok {
 		return errors.New("脚本函数有误")
 	}
@@ -72,9 +72,9 @@ func (c *group) Type() string {
 	return DayKline
 }
 
-func (c *group) Meet(info data.Info, ks extend.Klines) bool {
+func (c *group) Signal(info data.Info, day, min extend.Klines) bool {
 	for _, s := range c.List {
-		if !s.Meet(info, ks) {
+		if !s.Signal(info, day, min) {
 			return false
 		}
 	}

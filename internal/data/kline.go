@@ -24,7 +24,7 @@ const (
 )
 
 type (
-	Handler = func(info Info, ks extend.Klines)
+	Handler = func(info Info, day, min extend.Klines)
 )
 
 func NewManage(m *tdx.Manage) (*Data, error) {
@@ -74,7 +74,24 @@ func (this *Data) GetDayKlines(code string, start, end time.Time) (extend.Klines
 	return data, err
 }
 
-func (this *Data) RangeDayKlines(limit int, start, end time.Time, f Handler) error {
+func (this *Data) GetMinKlines(code string, start, end time.Time) (extend.Klines, error) {
+	filename := filepath.Join(this.KlineDir(), code+".db")
+	if !oss.Exists(filename) {
+		return nil, fmt.Errorf("股票[%s]数据不存在", code)
+	}
+	db, err := sqlite.NewXorm(filename)
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+	data := extend.Klines{}
+	err = db.Table("MinuteKline").Where("Unix>? and Unix<?", start.Unix(), end.Unix()).
+		Asc("Unix").Find(&data)
+	logs.PrintErr(err)
+	return data, err
+}
+
+func (this *Data) RangeKlines(limit int, start, end time.Time, f Handler) error {
 
 	es, err := os.ReadDir(this.KlineDir())
 	if err != nil {
@@ -91,15 +108,15 @@ func (this *Data) RangeDayKlines(limit int, start, end time.Time, f Handler) err
 		wg.Add()
 		go func() {
 			defer wg.Done()
-			ks, err := this.GetDayKlines(code, start, end)
+			dayKlines, err := this.GetDayKlines(code, start, end)
 			if err != nil {
 				logs.Err(err)
 				return
 			}
-			if len(ks) == 0 {
+			if len(dayKlines) == 0 {
 				return
 			}
-			last := ks[len(ks)-1]
+			last := dayKlines[len(dayKlines)-1]
 			info := Info{
 				Code:       code,
 				Name:       this.Codes.GetName(code),
@@ -110,7 +127,14 @@ func (this *Data) RangeDayKlines(limit int, start, end time.Time, f Handler) err
 				FloatValue: protocol.Price(last.FloatStock) * last.Close,
 				TotalValue: protocol.Price(last.TotalStock) * last.Close,
 			}
-			f(info, ks)
+
+			minKlines, err := this.GetMinKlines(code, start, end)
+			if err != nil {
+				logs.Err(err)
+				return
+			}
+
+			f(info, dayKlines, minKlines)
 		}()
 
 	}

@@ -18,7 +18,7 @@ func (SZExchange) Name() string {
 
 func (SZExchange) Type() string { return DayKline }
 
-func (SZExchange) Meet(info data.Info, ks extend.Klines) bool {
+func (SZExchange) Signal(info data.Info, day, min extend.Klines) bool {
 	return strings.HasPrefix(info.Code, protocol.ExchangeSH.String())
 }
 

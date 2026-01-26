@@ -17,7 +17,7 @@ func (NoBuyLimit) Name() string {
 
 func (NoBuyLimit) Type() string { return DayKline }
 
-func (NoBuyLimit) Meet(info data.Info, ks extend.Klines) bool {
+func (NoBuyLimit) Signal(info data.Info, day, min extend.Klines) bool {
 	return strings.HasPrefix(info.Code, "sh6") ||
 		strings.HasPrefix(info.Code, "sz0")
 }

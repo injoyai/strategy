@@ -39,19 +39,19 @@ func Run(req Request) (items []Item, err error) {
 	}
 
 	// 遍历所有股票的日K线数据
-	err = common.Data.RangeDayKlines(
+	err = common.Data.RangeKlines(
 		100, // 并发数
 		time.Unix(req.StartTime, 0),
 		time.Unix(req.EndTime, 0),
-		func(info data.Info, ks extend.Klines) {
+		func(info data.Info, day, min extend.Klines) {
 			// 判断是否满足策略条件
-			if strat.Meet(info, ks) {
+			if strat.Signal(info, day, min) {
 				// 构造返回结果
 				items = append(items, Item{
 					Info:   info, //基本信息
 					Score:  0,    // 默认评分
 					Signal: 0,    // 买卖信号
-					Klines: ks,   // K线数据
+					Klines: day,  // K线数据
 				})
 			}
 		},

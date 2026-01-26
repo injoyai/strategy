@@ -59,9 +59,9 @@ type Candle struct {
 	Symbol string
 }
 
-func RunBacktestAdvanced(info data.Info, ks extend.Klines, strat strategy.Interface, cfg Settings) Result {
-
-	if len(ks) == 0 {
+func RunBacktestAdvanced(info data.Info, day, min extend.Klines, strat strategy.Interface, cfg Settings) Result {
+	ks := day
+	if len(day) == 0 && len(min) == 0 {
 		return Result{
 			Equity:   []float64{},
 			Cash:     []float64{},
@@ -73,9 +73,9 @@ func RunBacktestAdvanced(info data.Info, ks extend.Klines, strat strategy.Interf
 		}
 	}
 
-	sigs := strat.Meet(info, ks)
+	sigs := strat.Signal(info, day, min)
 	_ = sigs
-	n := len(ks)
+	n := len(day)
 	equity := make([]float64, n)
 	cashSeries := make([]float64, n)
 	posSeries := make([]int, n)
@@ -91,7 +91,7 @@ func RunBacktestAdvanced(info data.Info, ks extend.Klines, strat strategy.Interf
 		buyPx := price * (1 + cfg.Slippage)
 		sellPx := price * (1 - cfg.Slippage)
 		s := 0
-		if strat.Meet(info, ks[:i+1]) {
+		if strat.Signal(info, ks[:i+1], min) {
 			s = 1
 		}
 		signals[i] = s

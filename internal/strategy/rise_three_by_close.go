@@ -15,12 +15,12 @@ func (RiseThreeByClose) Name() string {
 
 func (RiseThreeByClose) Type() string { return DayKline }
 
-func (RiseThreeByClose) Meet(info data.Info, ks extend.Klines) bool {
-	if len(ks) < 3 {
+func (RiseThreeByClose) Signal(info data.Info, day, min extend.Klines) bool {
+	if len(day) < 3 {
 		return false
 	}
-	return ks[len(ks)-1].Close > ks[len(ks)-2].Close &&
-		ks[len(ks)-2].Close > ks[len(ks)-3].Close
+	return day[len(day)-1].Close > day[len(day)-2].Close &&
+		day[len(day)-2].Close > day[len(day)-3].Close
 }
 
 func init() {

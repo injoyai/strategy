@@ -135,7 +135,10 @@ func Backtest(c fbr.Ctx) {
 		c.CheckErr(err)
 	}
 
-	ks, err := common.Data.GetDayKlines(req.Code, start, end)
+	dayKlines, err := common.Data.GetDayKlines(req.Code, start, end)
+	c.CheckErr(err)
+
+	minKlines, err := common.Data.GetMinKlines(req.Code, start, end)
 	c.CheckErr(err)
 
 	cash := req.Cash
@@ -152,24 +155,28 @@ func Backtest(c fbr.Ctx) {
 	if req.MinFee <= 0 {
 		req.MinFee = 5
 	}
-	res := backtest.RunBacktestAdvanced(data.Info{
-		Code:       "",
-		Name:       "",
-		Price:      0,
-		Turnover:   0,
-		FloatStock: 0,
-		TotalStock: 0,
-		FloatValue: 0,
-		TotalValue: 0,
-	}, ks, strat, backtest.Settings{
-		Cash:       cash,
-		Size:       size,
-		FeeRate:    req.FeeRate,
-		MinFee:     req.MinFee,
-		Slippage:   req.Slippage,
-		StopLoss:   req.StopLoss,
-		TakeProfit: req.TakeProfit,
-	})
+	res := backtest.RunBacktestAdvanced(
+		data.Info{
+			Code:       "",
+			Name:       "",
+			Price:      0,
+			Turnover:   0,
+			FloatStock: 0,
+			TotalStock: 0,
+			FloatValue: 0,
+			TotalValue: 0,
+		},
+		dayKlines, minKlines, strat,
+		backtest.Settings{
+			Cash:       cash,
+			Size:       size,
+			FeeRate:    req.FeeRate,
+			MinFee:     req.MinFee,
+			Slippage:   req.Slippage,
+			StopLoss:   req.StopLoss,
+			TakeProfit: req.TakeProfit,
+		},
+	)
 
 	c.Succ(res)
 }
@@ -216,10 +223,10 @@ func BacktestAllWS(c fbr.Ctx) {
 		var sumRet, sumSharpe, sumDD float64
 		var cnt int
 
-		err := common.Data.RangeDayKlines(
+		err := common.Data.RangeKlines(
 			100, start, end,
-			func(info data.Info, ks extend.Klines) {
-				res := backtest.RunBacktestAdvanced(info, ks, strat, settings)
+			func(info data.Info, day, min extend.Klines) {
+				res := backtest.RunBacktestAdvanced(info, day, min, strat, settings)
 				item := BacktestItem{
 					Code:        info.Code,
 					Name:        common.Data.Codes.GetName(info.Code),
