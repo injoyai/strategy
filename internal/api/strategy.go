@@ -17,8 +17,7 @@ import (
 // @Success 200 {array} string
 func GetStrategyNames(c fbr.Ctx) {
 	_type := c.GetString("type")
-	_ = _type
-	names := strategy.Names()
+	names := strategy.Names(_type)
 	sort.Strings(names)
 	c.Succ(names)
 }

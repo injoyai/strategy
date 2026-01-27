@@ -26,11 +26,12 @@ type Interface interface {
 }
 
 var (
-	strategies = map[string]Interface{}
+	custom   = map[string]Interface{}
+	internal = map[string]Interface{}
 )
 
 func Register(s Interface) {
-	strategies[s.Name()] = s
+	internal[s.Name()] = s
 }
 
 func RegisterScript(s *Script) error {
@@ -50,22 +51,37 @@ func RegisterScript(s *Script) error {
 	if !ok {
 		return errors.New("脚本函数有误")
 	}
-	Register(NewScript(s.Name, s.Type, f))
+	i := NewScript(s.Name, s.Type, f)
+	custom[i.Name()] = i
 	return nil
 }
 
 func Get(name string) Interface {
-	return strategies[name]
+	i, ok := custom[name]
+	if ok {
+		return i
+	}
+	return internal[name]
 }
 
 func Del(name string) {
-	delete(strategies, name)
+	delete(custom, name)
 }
 
-func Names() []string {
-	out := make([]string, 0, len(strategies))
-	for k := range strategies {
-		out = append(out, k)
+func Names(_type string) (out []string) {
+	switch _type {
+	case "custom":
+		out = make([]string, 0, len(custom))
+		for k := range custom {
+			out = append(out, k)
+		}
+	case "internal":
+		fallthrough
+	default:
+		out = make([]string, 0, len(internal))
+		for k := range internal {
+			out = append(out, k)
+		}
 	}
 	return out
 }

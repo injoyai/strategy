@@ -16,15 +16,15 @@ function unwrap(d: any) {
   return d
 }
 
-export async function getStrategies() {
-  const { data } = await api.get('/strategy/names')
+export async function getStrategies(type?: string) {
+  const { data } = await api.get('/strategy/names', { params: { type } })
   const body = unwrap(data)
   const arr = Array.isArray(body) ? body : (body.names || body.list || body.items || [])
   return arr.map((s: any) => String(s))
 }
 
-export async function getStrategyNames(): Promise<string[]> {
-  const { data } = await api.get('/strategy/names')
+export async function getStrategyNames(type?: string): Promise<string[]> {
+  const { data } = await api.get('/strategy/names', { params: { type } })
   const body = unwrap(data)
   const arr = Array.isArray(body) ? body : (body.names || body.list || body.items || [])
   return arr.map((s: any) => String(s))
