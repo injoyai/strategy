@@ -4,17 +4,16 @@ import (
 	"time"
 
 	"github.com/injoyai/strategy/internal/common"
-	"github.com/injoyai/strategy/internal/data"
 	"github.com/injoyai/strategy/internal/strategy"
 	"github.com/injoyai/tdx/extend"
 )
 
 // Item 选股结果项
 type Item struct {
-	data.Info               //基本信息
-	Score     float64       `json:"score"`  // 评分
-	Signal    int           `json:"signal"` // 信号类型 1:买入 -1:卖出
-	Klines    extend.Klines `json:"klines"` //
+	extend.Info               //基本信息
+	Score       float64       `json:"score"`  // 评分
+	Signal      int           `json:"signal"` // 信号类型 1:买入 -1:卖出
+	Klines      extend.Klines `json:"klines"` //
 }
 
 // Request 选股请求参数
@@ -43,7 +42,7 @@ func Run(req Request) (items []Item, err error) {
 		100, // 并发数
 		time.Unix(req.StartTime, 0),
 		time.Unix(req.EndTime, 0),
-		func(info data.Info, day, min extend.Klines) {
+		func(info extend.Info, day, min extend.Klines) {
 			// 判断是否满足策略条件
 			if strat.Signal(info, day, min) {
 				// 构造返回结果

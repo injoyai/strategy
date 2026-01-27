@@ -1,7 +1,6 @@
 package strategy
 
 import (
-	"github.com/injoyai/strategy/internal/data"
 	"github.com/injoyai/tdx/extend"
 )
 
@@ -22,7 +21,7 @@ func (o *Ouy) Type() string { return DayKline }
 // 2. 涨停之后的下一天出现向上跳空高开（当日开盘价 > 涨停日收盘价）
 // 3. 跳空之后出现连续阳线（至少 ConsecutiveBullDays 根连续阳线，含跳空当天）
 // 4. 最新一个交易日的成交量明显放大（> 过去M日均量 且 > 昨日成交量）
-func (o *Ouy) Signal(info data.Info, klines, minKlines extend.Klines) bool {
+func (o *Ouy) Signal(info extend.Info, klines, minKlines extend.Klines) bool {
 	if o.RecentDaysToCheck <= 0 {
 		o.RecentDaysToCheck = 20
 	}

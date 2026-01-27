@@ -4,7 +4,6 @@ import (
 	"math"
 	"time"
 
-	"github.com/injoyai/strategy/internal/data"
 	"github.com/injoyai/strategy/internal/strategy"
 	"github.com/injoyai/tdx/extend"
 )
@@ -59,7 +58,7 @@ type Candle struct {
 	Symbol string
 }
 
-func RunBacktestAdvanced(info data.Info, day, min extend.Klines, strat strategy.Interface, cfg Settings) Result {
+func RunBacktestAdvanced(info extend.Info, day, min extend.Klines, strat strategy.Interface, cfg Settings) Result {
 	ks := day
 	if len(day) == 0 && len(min) == 0 {
 		return Result{

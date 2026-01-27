@@ -25,13 +25,20 @@ var (
 	BuildDate string
 )
 
+var (
+	database   = cfg.GetString("database.filename", "./data/database/strategy.db")
+	invalidDay = cfg.GetInt("invalid_day", 180)
+)
+
 func Init() error {
+
+	logs.SetFormatter(logs.TimeFormatter)
 
 	if len(BuildDate) > 0 {
 		logs.Info("编译日期:", BuildDate)
 		buildTime, err := time.Parse(time.DateOnly, BuildDate)
 		logs.PrintErr(err)
-		if err == nil && time.Now().Sub(buildTime) > time.Hour*24*180 {
+		if err == nil && time.Now().Sub(buildTime) > time.Hour*24*time.Duration(invalidDay) {
 			return errors.New("数据获取失败,请尝试更新版本")
 		}
 	}
@@ -48,7 +55,7 @@ func Init() error {
 		return err
 	}
 
-	DB, err = sqlite.NewXorm(cfg.GetString("database.filename"))
+	DB, err = sqlite.NewXorm(database)
 	if err != nil {
 		return err
 	}

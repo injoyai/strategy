@@ -1,17 +1,23 @@
 package strategy
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
 
+	"github.com/injoyai/conv"
 	"github.com/injoyai/logs"
 	"github.com/injoyai/strategy/internal/common"
-	"github.com/injoyai/strategy/internal/data"
 	"github.com/injoyai/tdx/extend"
 )
 
 const (
 	DayKline = "day-kline"
+	GoExt    = ".go"
 )
 
 type Interface interface {
@@ -82,7 +88,7 @@ func (c *group) Type() string {
 	return DayKline
 }
 
-func (c *group) Signal(info data.Info, day, min extend.Klines) bool {
+func (c *group) Signal(info extend.Info, day, min extend.Klines) bool {
 	for _, s := range c.List {
 		if !s.Signal(info, day, min) {
 			return false
@@ -112,13 +118,26 @@ func Group(names []string) (Interface, error) {
 
  */
 
-func Init() error {
+func Loading(dir string) error {
 
-	err := common.DB.Sync2(new(Script))
+	err := LoadingDatabase()
 	if err != nil {
 		return err
 	}
 
+	err = LoadingFile(dir)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func LoadingDatabase() error {
+	err := common.DB.Sync2(new(Script))
+	if err != nil {
+		return err
+	}
 	ls := []*Script(nil)
 	err = common.DB.Find(&ls)
 	if err != nil {
@@ -129,5 +148,38 @@ func Init() error {
 			return err
 		}
 	}
+	return nil
+}
+
+func LoadingFile(dir string) error {
+
+	es, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+
+	for _, f := range es {
+		if f.IsDir() || strings.HasSuffix(f.Name(), ".go") {
+			continue
+		}
+		bs, err := os.ReadFile(filepath.Join(dir, f.Name()))
+		if err != nil {
+			return err
+		}
+		bs = bytes.TrimLeft(bs, " ")
+		bs = bytes.TrimPrefix(bs, []byte("package strategy"))
+		name := strings.TrimSuffix(f.Name(), GoExt)
+		if err = RegisterScript(&Script{
+			Name:    name,
+			Type:    DayKline,
+			Script:  string(bs),
+			Enable:  true,
+			Package: name + conv.String(time.Now().Unix()),
+		}); err != nil {
+			logs.Err(err)
+			continue
+		}
+	}
+
 	return nil
 }

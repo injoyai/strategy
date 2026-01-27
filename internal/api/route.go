@@ -9,7 +9,6 @@ import (
 	dist "github.com/injoyai/strategy"
 	"github.com/injoyai/strategy/internal/backtest"
 	"github.com/injoyai/strategy/internal/common"
-	"github.com/injoyai/strategy/internal/data"
 	"github.com/injoyai/strategy/internal/screener"
 	"github.com/injoyai/strategy/internal/strategy"
 	"github.com/injoyai/tdx/extend"
@@ -156,7 +155,7 @@ func Backtest(c fbr.Ctx) {
 		req.MinFee = 5
 	}
 	res := backtest.RunBacktestAdvanced(
-		data.Info{
+		extend.Info{
 			Code:       "",
 			Name:       "",
 			Price:      0,
@@ -225,7 +224,7 @@ func BacktestAllWS(c fbr.Ctx) {
 
 		err := common.Data.RangeKlines(
 			100, start, end,
-			func(info data.Info, day, min extend.Klines) {
+			func(info extend.Info, day, min extend.Klines) {
 				res := backtest.RunBacktestAdvanced(info, day, min, strat, settings)
 				item := BacktestItem{
 					Code:        info.Code,

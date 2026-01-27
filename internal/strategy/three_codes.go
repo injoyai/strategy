@@ -1,7 +1,6 @@
 package strategy
 
 import (
-	"github.com/injoyai/strategy/internal/data"
 	"github.com/injoyai/tdx/extend"
 )
 
@@ -17,7 +16,7 @@ func (this Test) Name() string {
 
 func (this Test) Type() string { return DayKline }
 
-func (this Test) Signal(info data.Info, day, min extend.Klines) bool {
+func (this Test) Signal(info extend.Info, day, min extend.Klines) bool {
 	_, ok := this.selected[info.Code]
 	return ok
 }

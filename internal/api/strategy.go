@@ -76,18 +76,10 @@ func PutStrategy(c fbr.Ctx) {
 	c.CheckErr(err)
 
 	s.Script = req.Script
-	//s.Enable = req.Enable
 	s.Package = req.Name + conv.String(time.Now().Unix())
 
 	_, err = common.DB.Where("Name=?", req.Name).Cols("Script,Package").Update(s)
 	c.CheckErr(err)
-
-	//if req.Enable {
-	//	err = strategy.RegisterScript(s)
-	//	c.CheckErr(err)
-	//} else {
-	//	strategy.Del(req.Name)
-	//}
 
 	c.Succ(s)
 }

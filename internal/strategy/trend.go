@@ -1,7 +1,6 @@
 package strategy
 
 import (
-	"github.com/injoyai/strategy/internal/data"
 	"github.com/injoyai/tdx/extend"
 )
 
@@ -35,7 +34,7 @@ func (s *TrendUp) Type() string {
 	return DayKline
 }
 
-func (s *TrendUp) Signal(info data.Info, day, min extend.Klines) bool {
+func (s *TrendUp) Signal(info extend.Info, day, min extend.Klines) bool {
 
 	ks := day
 

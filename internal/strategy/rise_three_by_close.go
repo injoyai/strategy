@@ -1,7 +1,6 @@
 package strategy
 
 import (
-	"github.com/injoyai/strategy/internal/data"
 	"github.com/injoyai/tdx/extend"
 )
 
@@ -15,7 +14,7 @@ func (RiseThreeByClose) Name() string {
 
 func (RiseThreeByClose) Type() string { return DayKline }
 
-func (RiseThreeByClose) Signal(info data.Info, day, min extend.Klines) bool {
+func (RiseThreeByClose) Signal(info extend.Info, day, min extend.Klines) bool {
 	if len(day) < 3 {
 		return false
 	}

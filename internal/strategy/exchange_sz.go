@@ -3,7 +3,6 @@ package strategy
 import (
 	"strings"
 
-	"github.com/injoyai/strategy/internal/data"
 	"github.com/injoyai/tdx/extend"
 	"github.com/injoyai/tdx/protocol"
 )
@@ -18,7 +17,7 @@ func (SZExchange) Name() string {
 
 func (SZExchange) Type() string { return DayKline }
 
-func (SZExchange) Signal(info data.Info, day, min extend.Klines) bool {
+func (SZExchange) Signal(info extend.Info, day, min extend.Klines) bool {
 	return strings.HasPrefix(info.Code, protocol.ExchangeSH.String())
 }
 

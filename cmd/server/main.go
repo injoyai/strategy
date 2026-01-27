@@ -10,18 +10,24 @@ import (
 )
 
 var (
-	port = cfg.GetInt("port", frame.DefaultPort)
+	port      = cfg.GetInt("port", frame.DefaultPort)
+	scriptDir = cfg.GetString("script_dir", "./data/strategy")
 )
 
 func main() {
 
+	//初始化全局变量
 	err := common.Init()
 	logs.PanicErr(err)
 
+	//自动更新数据
 	common.Data.Start()
 
-	err = strategy.Init()
+	//加载脚本
+	err = strategy.Loading(scriptDir)
 	logs.PanicErr(err)
 
-	logs.Err(api.Run(port))
+	//运行服务
+	err = api.Run(port)
+	logs.Err(err)
 }
