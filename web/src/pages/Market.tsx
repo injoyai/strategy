@@ -13,6 +13,7 @@ export default function MarketPage() {
   const [showBoll, setShowBoll] = useState(false)
   const [showVertex, setShowVertex] = useState(true)
   const [showVertex6, setShowVertex6] = useState(false)
+  const [showVertex10, setShowVertex10] = useState(false)
 
   useEffect(() => {
     (async () => {
@@ -78,8 +79,9 @@ export default function MarketPage() {
           <Button size="small" type={showBoll ? 'primary' : 'default'} onClick={() => setShowBoll(!showBoll)}>布林带</Button>
           <Button size="small" type={showVertex6 ? 'primary' : 'default'} onClick={() => setShowVertex6(!showVertex6)}>顶点(6)</Button>
           <Button size="small" type={showVertex ? 'primary' : 'default'} onClick={() => setShowVertex(!showVertex)}>顶点(8)</Button>
+          <Button size="small" type={showVertex10 ? 'primary' : 'default'} onClick={() => setShowVertex10(!showVertex10)}>顶点(10)</Button>
         </Space>
-        <PriceChart candles={candles} enableZoom defaultWindowCount={120} showMA={showMA} showBollinger={showBoll} showVertex={showVertex} showVertex6={showVertex6} />
+        <PriceChart candles={candles} enableZoom defaultWindowCount={120} showMA={showMA} showBollinger={showBoll} showVertex={showVertex} showVertex6={showVertex6} showVertex10={showVertex10} showReturns={false} />
       </Card>
     </Space>
   )

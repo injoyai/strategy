@@ -22,9 +22,9 @@ func (this Test) Signal(info extend.Info, day, min extend.Klines) bool {
 }
 
 func init() {
-	Register(Test{map[string]struct{}{
-		"bj920000": {},
-		"sh600000": {},
-		"sz000001": {},
-	}})
+	//Register(Test{map[string]struct{}{
+	//	"bj920000": {},
+	//	"sh600000": {},
+	//	"sz000001": {},
+	//}})
 }

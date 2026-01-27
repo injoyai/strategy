@@ -15,6 +15,9 @@ export default function ScreenerPage() {
   const [loadingMore, setLoadingMore] = useState(false)
   const [showMA, setShowMA] = useState(true)
   const [showBoll, setShowBoll] = useState(false)
+  const [showVertex, setShowVertex] = useState(true)
+  const [showVertex6, setShowVertex6] = useState(false)
+  const [showVertex10, setShowVertex10] = useState(false)
   const [sorter, setSorter] = useState<{ field?: string, order?: 'ascend' | 'descend' }>({})
 
   useEffect(() => {
@@ -27,7 +30,6 @@ export default function ScreenerPage() {
         const defaultStart = dayjs().subtract(3, 'month')
         const defaultEnd = dayjs().hour(23).minute(23).second(0)
         form.setFieldsValue({ 
-          strategy: strats[0], 
           lookback: 10,
           range: [defaultStart, defaultEnd]
         })
@@ -46,6 +48,14 @@ export default function ScreenerPage() {
 
   async function onRun() {
     const v = await form.validateFields()
+    
+    const s1 = v.strategy || []
+    const s2 = v.aux_strategy || []
+    if (s1.length === 0 && s2.length === 0) {
+      message.error('请至少选择一个策略（主策略或辅助策略）')
+      return
+    }
+
     setLoading(true)
     try {
       const start = v.range?.[0] ? v.range[0].format('YYYY-MM-DD') : undefined
@@ -53,9 +63,7 @@ export default function ScreenerPage() {
       const startTs = v.range?.[0] ? v.range[0].unix() : undefined
       const endTs = v.range?.[1] ? v.range[1].unix() : undefined
       
-      const selectedStrategies = []
-      if (v.strategy) selectedStrategies.push(v.strategy)
-      if (v.aux_strategy) selectedStrategies.push(v.aux_strategy)
+      const selectedStrategies = [...s1, ...s2]
 
       const res = await screener({
         strategies: selectedStrategies,
@@ -90,6 +98,14 @@ export default function ScreenerPage() {
       return (Number(fa) - Number(fb)) * dir
     })
     return arr
+  }
+
+  function formatValueWithUnit(v: any) {
+    const n = Number(v ?? 0)
+    if (!Number.isFinite(n)) return '0'
+    if (n >= 100000000) return `${(n / 100000000).toFixed(2)}亿`
+    if (n >= 10000) return `${(n / 10000).toFixed(2)}万`
+    return `${n.toFixed(2)}`
   }
 
   async function loadChartsFor(items: any[], strategiesList: string[]) {
@@ -137,9 +153,9 @@ export default function ScreenerPage() {
       const nextCount = Math.min(visibleCount + 60, ordered.length)
       const slice = ordered.slice(visibleCount, nextCount)
       
-      const selectedStrategies = []
-      if (v.strategy) selectedStrategies.push(v.strategy)
-      if (v.aux_strategy) selectedStrategies.push(v.aux_strategy)
+      const s1 = v.strategy || []
+      const s2 = v.aux_strategy || []
+      const selectedStrategies = [...s1, ...s2]
       
       await loadChartsFor(slice, selectedStrategies)
       setVisibleCount(nextCount)
@@ -150,8 +166,13 @@ export default function ScreenerPage() {
   }, [visibleCount, data])
 
   function onExportCSV() {
-    const header = ['code','name','price','score','signal']
-    const rows = data.map(r => [r.code, r.name || '', r.price, r.score, r.signal])
+    const header = ['code','name','price','score','turnover','floatValue','signal']
+    const rows = data.map(r => {
+      const v = Number(r.turnoverRate ?? r.turnover ?? r.TurnoverRate ?? r.Turnover ?? 0)
+      const pct = v <= 1 ? v * 100 : v
+      const fv = Number(r.floatValue ?? (Number(r.FloatValue ?? 0) / 1000))
+      return [r.code, r.name || '', r.price, r.score, pct, formatValueWithUnit(fv), r.signal]
+    })
     const csv = [header.join(','), ...rows.map(x => x.join(','))].join('\n')
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
@@ -166,11 +187,11 @@ export default function ScreenerPage() {
     <Space direction="vertical" style={{ width: '100%' }} size="large">
       <Card title="选股条件">
         <Form form={form} layout="inline">
-          <Form.Item name="strategy" label="策略" rules={[{ required: true }]}>
-            <Select style={{ width: 200 }} options={strategies.map(s => ({ value: s, label: s }))} />
+          <Form.Item name="strategy" label="策略">
+            <Select mode="multiple" maxTagCount="responsive" style={{ minWidth: 200, maxWidth: 400 }} options={strategies.map(s => ({ value: s, label: s }))} placeholder="选择策略" />
           </Form.Item>
           <Form.Item name="aux_strategy" label="辅助">
-            <Select style={{ width: 200 }} allowClear options={auxStrategies.map(s => ({ value: s, label: s }))} />
+            <Select mode="multiple" maxTagCount="responsive" style={{ minWidth: 200, maxWidth: 400 }} allowClear options={auxStrategies.map(s => ({ value: s, label: s }))} placeholder="选择辅助策略" />
           </Form.Item>
           <Form.Item name="range" label="时间范围">
              <DatePicker.RangePicker format="YYYY-MM-DD" />
@@ -206,6 +227,25 @@ export default function ScreenerPage() {
             { title: '股票名称', dataIndex: 'name', sorter: (a: any, b: any) => String(a.name || '').localeCompare(String(b.name || '')), sortDirections: ['ascend','descend'] },
             { title: '价格', dataIndex: 'price', render: (v: number) => v.toFixed(2), sorter: (a: any, b: any) => Number(a.price) - Number(b.price), sortDirections: ['ascend','descend'] },
             { title: '评分', dataIndex: 'score', render: (v: number) => v.toFixed(4), sorter: (a: any, b: any) => Number(a.score) - Number(b.score), sortDirections: ['ascend','descend'] },
+            { title: '换手率', dataIndex: 'turnover', render: (_: any, r: any) => {
+              const v = Number(r.turnoverRate ?? r.turnover ?? r.TurnoverRate ?? r.Turnover ?? 0)
+              const pct = v <= 1 ? v * 100 : v
+              return `${pct.toFixed(2)}%`
+            }, sorter: (a: any, b: any) => {
+              const va = Number(a.turnoverRate ?? a.turnover ?? a.TurnoverRate ?? a.Turnover ?? 0)
+              const vb = Number(b.turnoverRate ?? b.turnover ?? b.TurnoverRate ?? b.Turnover ?? 0)
+              const pa = va <= 1 ? va * 100 : va
+              const pb = vb <= 1 ? vb * 100 : vb
+              return pa - pb
+            }, sortDirections: ['ascend','descend'] },
+            { title: '流通市值', dataIndex: 'floatValue', render: (v: number, r: any) => {
+              const fv = Number(r.floatValue ?? (Number(r.FloatValue ?? v ?? 0) / 1000))
+              return formatValueWithUnit(fv)
+            }, sorter: (a: any, b: any) => {
+              const va = Number(a.floatValue ?? (Number(a.FloatValue ?? 0) / 1000))
+              const vb = Number(b.floatValue ?? (Number(b.FloatValue ?? 0) / 1000))
+              return va - vb
+            }, sortDirections: ['ascend','descend'] },
             { title: '信号', dataIndex: 'signal', render: (s: number) => s === 1 ? <Tag color="green">买入</Tag> : s === -1 ? <Tag color="red">卖出</Tag> : <Tag>观望</Tag>, sorter: (a: any, b: any) => Number(a.signal) - Number(b.signal), sortDirections: ['ascend','descend'] },
           ]}
         />
@@ -214,6 +254,9 @@ export default function ScreenerPage() {
         <Space style={{ marginBottom: 8 }}>
           <Button size="small" type={showMA ? 'primary' : 'default'} onClick={() => setShowMA(!showMA)}>均线</Button>
           <Button size="small" type={showBoll ? 'primary' : 'default'} onClick={() => setShowBoll(!showBoll)}>布林带</Button>
+          <Button size="small" type={showVertex6 ? 'primary' : 'default'} onClick={() => setShowVertex6(!showVertex6)}>顶点(6)</Button>
+          <Button size="small" type={showVertex ? 'primary' : 'default'} onClick={() => setShowVertex(!showVertex)}>顶点(8)</Button>
+          <Button size="small" type={showVertex10 ? 'primary' : 'default'} onClick={() => setShowVertex10(!showVertex10)}>顶点(10)</Button>
         </Space>
         <Row gutter={[12,12]}>
           {getOrdered(data).slice(0, visibleCount).map((item) => {
@@ -221,7 +264,7 @@ export default function ScreenerPage() {
             return (
               <Col key={item.code} span={8}>
                 <Card size="small" title={`${item.name || item.code}-${item.code}`}>
-                  {c ? <PriceChart candles={c.candles} trades={c.trades} showMA={showMA} showBollinger={showBoll} /> : <div>加载中...</div>}
+                  {c ? <PriceChart candles={c.candles} trades={c.trades} showMA={showMA} showBollinger={showBoll} showVertex={showVertex} showVertex6={showVertex6} showVertex10={showVertex10} showReturns={false} /> : <div>加载中...</div>}
                 </Card>
               </Col>
             )

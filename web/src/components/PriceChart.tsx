@@ -2,7 +2,7 @@ import React, { useRef } from 'react'
 import ReactECharts from 'echarts-for-react'
 import dayjs from 'dayjs'
 
-export default function PriceChart({ candles, trades, equity, signals, showBuy = false, showSell = true, showSignals = false, showReturns = true, enableZoom = false, defaultWindowCount, showBollinger = false, showVolume = false, showMA = true, showVertex = false, showVertex6 = false }: { candles: { Time: string, Open: number, High: number, Low: number, Close: number, Volume?: number, Amount?: number }[], trades?: { index: number, side: string }[], equity?: number[], signals?: number[], showBuy?: boolean, showSell?: boolean, showSignals?: boolean, showReturns?: boolean, enableZoom?: boolean, defaultWindowCount?: number, showBollinger?: boolean, showVolume?: boolean, showMA?: boolean, showVertex?: boolean, showVertex6?: boolean }) {
+export default function PriceChart({ candles, trades, equity, signals, showBuy = false, showSell = true, showSignals = false, showReturns = true, enableZoom = false, defaultWindowCount, showBollinger = false, showVolume = false, showMA = true, showVertex = false, showVertex6 = false, showVertex10 = false }: { candles: { Time: string, Open: number, High: number, Low: number, Close: number, Volume?: number, Amount?: number }[], trades?: { index: number, side: string }[], equity?: number[], signals?: number[], showBuy?: boolean, showSell?: boolean, showSignals?: boolean, showReturns?: boolean, enableZoom?: boolean, defaultWindowCount?: number, showBollinger?: boolean, showVolume?: boolean, showMA?: boolean, showVertex?: boolean, showVertex6?: boolean, showVertex10?: boolean }) {
   if (!candles || candles.length === 0) return null
   const x = candles.map(c => dayjs(c.Time).format('YY-MM-DD'))
   const maxPrice = Math.max(...candles.map(c => Math.max(Number(c.Open || 0), Number(c.High || 0), Number(c.Low || 0), Number(c.Close || 0))))
@@ -130,6 +130,9 @@ export default function PriceChart({ candles, trades, equity, signals, showBuy =
   if (showVertex6) {
     vertexPts.push(...getVertexPts(6))
   }
+  if (showVertex10) {
+    vertexPts.push(...getVertexPts(10))
+  }
 
   const signalPts = (signals || []).map((s, i) => {
     if (i >= closes.length) return null
@@ -169,9 +172,9 @@ export default function PriceChart({ candles, trades, equity, signals, showBuy =
       { type: 'line', name: '布林上轨', data: up, smooth: true, showSymbol: false } as any,
       { type: 'line', name: '布林下轨', data: low, smooth: true, showSymbol: false } as any,
     ] : []),
-    (showVertex || showVertex6) ? { type: 'scatter', name: '顶点', data: vertexPts } as any : undefined,
+    (showVertex || showVertex6 || showVertex10) ? { type: 'scatter', name: '顶点', data: vertexPts } as any : undefined,
     showSignals && signalPts.length ? { type: 'scatter', name: '信号', data: signalPts } as any : undefined,
-    benchmarkLine && showReturns ? { type: 'line', name: '基准', yAxisIndex: 1, data: benchmarkLine, smooth: true, showSymbol: false, lineStyle: { width: 1, type: 'dashed', color: '#8c8c8c' } } as any : undefined,
+    benchmarkLine && showReturns ? { type: 'line', name: '基准', yAxisIndex: 1, data: benchmarkLine, smooth: true, showSymbol: false, lineStyle: { width: 1, type: 'solid', color: '#8c8c8c' } } as any : undefined,
     retLine && showReturns ? { type: 'line', name: '收益', yAxisIndex: 1, data: retLine, smooth: true, showSymbol: false, lineStyle: { width: 2, color: '#722ed1' }, areaStyle: { color: 'rgba(114,46,209,0.12)' } } as any : undefined,
     buyPts.length && showBuy ? { type: 'scatter', name: '买入', data: buyPts, symbol: 'triangle' } as any : undefined,
     sellPts.length && showSell ? { type: 'scatter', name: '卖出', data: sellPts, symbol: 'triangle', symbolRotate: 180 } as any : undefined,
@@ -229,16 +232,16 @@ export default function PriceChart({ candles, trades, equity, signals, showBuy =
       { left: 50, right: 24, bottom: 80, height: '18%', containLabel: true }
     ] : undefined,
     xAxis: hasVol ? [
-      { type: 'category', data: x, gridIndex: 0, boundaryGap: true, axisTick: { alignWithLabel: true, show: false }, axisLabel: { show: false }, axisLine: { show: false }, splitLine: { show: true, lineStyle: { type: 'dashed', color: '#ddd' } } },
-      { type: 'category', data: x, gridIndex: 1, boundaryGap: true, axisTick: { alignWithLabel: true }, axisLabel: { show: true }, axisLine: { show: true }, splitLine: { show: true, lineStyle: { type: 'dashed', color: '#ddd' } } }
-    ] : { type: 'category', data: x, boundaryGap: true, axisTick: { alignWithLabel: true } },
+      { type: 'category', data: x, gridIndex: 0, boundaryGap: true, axisTick: { alignWithLabel: true, show: false }, axisLabel: { show: false }, axisLine: { show: false }, splitLine: { show: true, lineStyle: { type: 'solid', color: '#ddd' } } },
+      { type: 'category', data: x, gridIndex: 1, boundaryGap: true, axisTick: { alignWithLabel: true }, axisLabel: { show: true }, axisLine: { show: true }, splitLine: { show: true, lineStyle: { type: 'solid', color: '#ddd' } } }
+    ] : { type: 'category', data: x, boundaryGap: true, axisTick: { alignWithLabel: true }, splitLine: { show: true, lineStyle: { type: 'solid', color: '#ddd' } } },
     yAxis: hasVol ? [
-      { scale: true, name: '价格(元)', nameGap: 24, gridIndex: 0, position: 'left' },
-      { type: 'value', name: '收益(%)', position: 'right', axisLabel: { formatter: (v: number) => `${v.toFixed(0)}%` }, gridIndex: 0 },
-      { type: 'value', name: '成交量(手)', position: 'left', gridIndex: 1, axisLabel: { show: false }, axisTick: { show: false }, axisLine: { show: true } }
+      { scale: true, name: '价格(元)', nameGap: 24, gridIndex: 0, position: 'left', splitLine: { show: true, lineStyle: { type: 'solid', color: '#ddd' } } },
+      { type: 'value', name: '收益(%)', position: 'right', axisLabel: { formatter: (v: number) => `${v.toFixed(0)}%` }, gridIndex: 0, splitLine: { show: true, lineStyle: { type: 'solid', color: '#ddd' } } },
+      { type: 'value', name: '成交量(手)', position: 'left', gridIndex: 1, axisLabel: { show: false }, axisTick: { show: false }, axisLine: { show: true }, splitLine: { show: true, lineStyle: { type: 'solid', color: '#ddd' } } }
     ] : [
-      { scale: true, name: '价格(元)', position: 'left' },
-      { type: 'value', name: '收益(%)', position: 'right', axisLabel: { formatter: (v: number) => `${v.toFixed(0)}%` } },
+      { scale: true, name: '价格(元)', position: 'left', splitLine: { show: true, lineStyle: { type: 'solid', color: '#ddd' } } },
+      { type: 'value', name: '收益(%)', position: 'right', axisLabel: { formatter: (v: number) => `${v.toFixed(0)}%` }, splitLine: { show: true, lineStyle: { type: 'solid', color: '#ddd' } } },
     ],
     dataZoom: enableZoom ? (
       hasVol ? [

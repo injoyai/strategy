@@ -126,14 +126,13 @@ func LoadingDatabase() error {
 }
 
 func LoadingFile(dir string) error {
-
 	es, err := os.ReadDir(dir)
 	if err != nil {
 		return err
 	}
 
 	for _, f := range es {
-		if f.IsDir() || strings.HasSuffix(f.Name(), ".go") {
+		if f.IsDir() || !strings.HasSuffix(f.Name(), ".go") {
 			continue
 		}
 		bs, err := os.ReadFile(filepath.Join(dir, f.Name()))

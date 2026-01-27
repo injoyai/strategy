@@ -1,17 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { Card, Table, Space, Input, message, Row, Col, Button, Switch, Tag, Popconfirm, Modal, Form, Tooltip } from 'antd'
-import Editor from '@monaco-editor/react'
 import { getStrategyAll, createStrategy, updateStrategy, setStrategyEnable, deleteStrategy } from '../lib/api'
 import { PlusOutlined, ReloadOutlined } from '@ant-design/icons'
-import { MonacoLanguageClient } from 'monaco-languageclient'
-import { toSocket, WebSocketMessageReader, WebSocketMessageWriter } from 'vscode-ws-jsonrpc'
-import { MonacoVscodeApiWrapper } from 'monaco-languageclient/vscodeApiWrapper'
-import { configureDefaultWorkerFactory } from 'monaco-languageclient/workerFactory'
-import { registerExtension, ExtensionHostKind } from '@codingame/monaco-vscode-api/extensions'
-import '@codingame/monaco-vscode-theme-defaults-default-extension'
-import * as vscode from 'vscode'
-
-let themeDefaultsRegistered = false
 
 export default function StrategyPage() {
   const [strategies, setStrategies] = useState<{ name: string, script?: string, enable?: boolean, package?: string }[]>([])
@@ -19,160 +9,11 @@ export default function StrategyPage() {
   const [scriptCode, setScriptCode] = useState<string>('')
   const [newVisible, setNewVisible] = useState(false)
   const [newForm] = Form.useForm()
-  const [isLspReady, setIsLspReady] = useState(false)
   const editorRef = useRef<any>(null)
-  const clientRef = useRef<MonacoLanguageClient | null>(null)
-  const socketRef = useRef<WebSocket | null>(null)
-  const retryRef = useRef<any>(null)
-  const versionRef = useRef(1)
-  const changeDisposableRef = useRef<any>(null)
+  const gutterRef = useRef<HTMLDivElement | null>(null)
 
   // 使用固定类型名，避免生成不期望的类型名
   const FixedTypeName = 'Strategy'
-
-  // 定义 Action 枚举值
-  const CloseAction = { DoNotRestart: 1, Restart: 2 }
-  const ErrorAction = { Continue: 1, Shutdown: 2 }
-
-  useEffect(() => {
-    const initLsp = async () => {
-      try {
-        const wrapper = new MonacoVscodeApiWrapper({
-          $type: 'extended',
-          viewsConfig: {
-            $type: 'EditorService'
-          },
-          monacoWorkerFactory: configureDefaultWorkerFactory
-        })
-        await wrapper.start()
-        setIsLspReady(true)
-      } catch (e) {
-        console.error('LSP Init Failed:', e)
-        setIsLspReady(true)
-      }
-    }
-    initLsp()
-  }, [])
-
-  const scheduleRetry = () => {
-    if (retryRef.current) return
-    retryRef.current = setTimeout(() => {
-      retryRef.current = null
-      startLsp()
-    }, 1500)
-  }
-
-  const startLsp = () => {
-    if (!isLspReady) {
-      scheduleRetry()
-      return
-    }
-    if (clientRef.current) return
-    if (!editorRef.current) {
-      scheduleRetry()
-      return
-    }
-    const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
-    const url = `${protocol}://${window.location.host}/api/lsp`
-    const webSocket = new WebSocket(url)
-    socketRef.current = webSocket
-
-    webSocket.onopen = () => {
-      const socket = toSocket(webSocket)
-      const reader = new WebSocketMessageReader(socket)
-      const writer = new WebSocketMessageWriter(socket)
-
-      const languageClient = new MonacoLanguageClient({
-        name: 'Go Language Client',
-        clientOptions: {
-          documentSelector: [{ language: 'go', scheme: 'file' }],
-          workspaceFolder: {
-            uri: vscode.Uri.parse('file:///workspace'),
-            name: 'workspace',
-            index: 0
-          },
-          errorHandler: {
-            error: () => ({ action: ErrorAction.Continue }),
-            closed: () => ({ action: CloseAction.DoNotRestart })
-          }
-        },
-        messageTransports: { reader, writer }
-      })
-      clientRef.current = languageClient
-      languageClient.start()
-      languageClient.onReady().then(() => {
-        const editor = editorRef.current
-        const model = editor?.getModel()
-        if (!model) return
-        const uri = model.uri?.toString?.() || 'file:///workspace/main.go'
-        const languageId = model.getLanguageId?.() || 'go'
-        languageClient.sendNotification('textDocument/didOpen', {
-          textDocument: {
-            uri,
-            languageId,
-            version: versionRef.current,
-            text: model.getValue()
-          }
-        })
-        if (changeDisposableRef.current?.dispose) {
-          changeDisposableRef.current.dispose()
-        }
-        changeDisposableRef.current = editor.onDidChangeModelContent(() => {
-          versionRef.current += 1
-          languageClient.sendNotification('textDocument/didChange', {
-            textDocument: {
-              uri,
-              version: versionRef.current
-            },
-            contentChanges: [{ text: model.getValue() }]
-          })
-        })
-      })
-    }
-
-    webSocket.onerror = () => {
-      socketRef.current = null
-      clientRef.current = null
-      scheduleRetry()
-    }
-
-    webSocket.onclose = () => {
-      socketRef.current = null
-      clientRef.current = null
-      scheduleRetry()
-    }
-  }
-
-  useEffect(() => {
-    startLsp()
-    return () => {
-      try { clientRef.current?.stop() } catch {}
-      clientRef.current = null
-      try { socketRef.current?.close() } catch {}
-      socketRef.current = null
-      if (changeDisposableRef.current?.dispose) {
-        changeDisposableRef.current.dispose()
-      }
-      changeDisposableRef.current = null
-      if (retryRef.current) {
-        clearTimeout(retryRef.current)
-        retryRef.current = null
-      }
-    }
-  }, [isLspReady])
-
-  const handleEditorDidMount = (editor: any, monaco: any) => {
-    editorRef.current = editor
-    const model = editor.getModel()
-    if (!model || model.uri?.scheme !== 'file') {
-      const uri = monaco.Uri.parse('file:///workspace/main.go')
-      const nextModel = monaco.editor.createModel(scriptCode || '', 'go', uri)
-      editor.setModel(nextModel)
-    }
-    startLsp()
-  }
-
-
 
   async function loadList() {
     try {
@@ -302,21 +143,72 @@ export default function StrategyPage() {
             }
           >
             <div style={{ height: '70vh' }}>
-              <Editor
-                height="100%"
-                path="main.go" 
-                defaultLanguage="go"
-                theme="vs-dark"
-                value={scriptCode}
-                onChange={(v) => setScriptCode(v || '')}
-                onMount={handleEditorDidMount}
-                options={{
-                  fontSize: 14,
-                  minimap: { enabled: false },
-                  scrollBeyondLastLine: false,
-                  automaticLayout: true,
-                }}
-              />
+              <style>{`
+                .strategy-editor-gutter::-webkit-scrollbar,
+                .strategy-editor-textarea::-webkit-scrollbar {
+                  width: 0;
+                  height: 0;
+                }
+              `}</style>
+              <div style={{ height: '100%', display: 'flex', border: '1px solid #303030', borderRadius: 6, overflow: 'hidden', background: '#2b2b2b' }}>
+                <div
+                  ref={gutterRef}
+                  className="strategy-editor-gutter"
+                  style={{
+                    background: '#242424',
+                    color: '#9e9e9e',
+                    padding: '8px 6px',
+                    textAlign: 'right',
+                    userSelect: 'none',
+                    overflow: 'hidden',
+                    scrollbarWidth: 'none',
+                    msOverflowStyle: 'none'
+                  }}
+                >
+                  <pre style={{ margin: 0, fontSize: 13, lineHeight: '20px', overflow: 'hidden', height: '100%' }}>
+                    {Array.from({ length: (scriptCode.match(/\n/g)?.length || 0) + 1 }, (_, i) => i + 1).join('\n')}
+                  </pre>
+                </div>
+                <Input.TextArea
+                  ref={editorRef}
+                  className="strategy-editor-textarea"
+                  value={scriptCode}
+                  onChange={(e) => setScriptCode(e.target.value)}
+                  onScroll={(e) => {
+                    if (gutterRef.current) {
+                      gutterRef.current.scrollTop = e.currentTarget.scrollTop
+                    }
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key !== 'Tab') return
+                    e.preventDefault()
+                    const el = editorRef.current?.resizableTextArea?.textArea
+                    if (!el) return
+                    const start = el.selectionStart || 0
+                    const end = el.selectionEnd || 0
+                    const next = scriptCode.slice(0, start) + '\t' + scriptCode.slice(end)
+                    setScriptCode(next)
+                    requestAnimationFrame(() => {
+                      el.selectionStart = start + 1
+                      el.selectionEnd = start + 1
+                    })
+                  }}
+                  style={{
+                    height: '100%',
+                    fontFamily: 'Consolas, Menlo, Monaco, monospace',
+                    fontSize: 13,
+                    lineHeight: '20px',
+                    border: 'none',
+                    borderRadius: 0,
+                    background: '#2b2b2b',
+                    color: '#f0f0f0',
+                    scrollbarWidth: 'none',
+                    msOverflowStyle: 'none',
+                    resize: 'none'
+                  }}
+                  autoSize={false}
+                />
+              </div>
             </div>
           </Card>
           </Col>
