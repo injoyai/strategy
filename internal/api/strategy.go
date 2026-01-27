@@ -16,7 +16,9 @@ import (
 // @Tags 策略
 // @Success 200 {array} string
 func GetStrategyNames(c fbr.Ctx) {
-	names := strategy.Registry()
+	_type := c.GetString("type")
+	_ = _type
+	names := strategy.Names()
 	sort.Strings(names)
 	c.Succ(names)
 }
