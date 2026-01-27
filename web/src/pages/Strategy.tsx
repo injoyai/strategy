@@ -8,6 +8,7 @@ import { toSocket, WebSocketMessageReader, WebSocketMessageWriter } from 'vscode
 import { MonacoVscodeApiWrapper } from 'monaco-languageclient/vscodeApiWrapper'
 import { configureDefaultWorkerFactory } from 'monaco-languageclient/workerFactory'
 import { registerExtension, ExtensionHostKind } from '@codingame/monaco-vscode-api/extensions'
+import '@codingame/monaco-vscode-theme-defaults-default-extension'
 import * as vscode from 'vscode'
 
 let themeDefaultsRegistered = false
@@ -43,42 +44,6 @@ export default function StrategyPage() {
           },
           monacoWorkerFactory: configureDefaultWorkerFactory
         })
-        const themeDefaults = {
-          name: 'theme-defaults',
-          publisher: 'vscode',
-          version: '1.0.0',
-          engines: {
-            vscode: '*'
-          },
-          contributes: {
-            themes: [
-              {
-                id: 'Default Dark Modern',
-                label: 'Dark+ (default dark)',
-                uiTheme: 'vs-dark',
-                path: './themes/dark_modern.json'
-              },
-              {
-                id: 'Default Light Modern',
-                label: 'Light+ (default light)',
-                uiTheme: 'vs',
-                path: './themes/light_modern.json'
-              }
-            ]
-          }
-        }
-        if (!themeDefaultsRegistered) {
-          const extensionBase = '/extensions/theme-defaults'
-          const extension = registerExtension(themeDefaults as any, ExtensionHostKind.LocalWebWorker, { path: extensionBase })
-          const origin = window.location.origin
-          const registerFileUrl = (extension as any).registerFileUrl
-          if (typeof registerFileUrl === 'function') {
-            registerFileUrl('package.nls.json', `${origin}${extensionBase}/package.nls.json`)
-            registerFileUrl('themes/dark_modern.json', `${origin}${extensionBase}/themes/dark_modern.json`)
-            registerFileUrl('themes/light_modern.json', `${origin}${extensionBase}/themes/light_modern.json`)
-          }
-          themeDefaultsRegistered = true
-        }
         await wrapper.start()
         setIsLspReady(true)
       } catch (e) {

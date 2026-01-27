@@ -6,6 +6,7 @@ import dayjs from 'dayjs'
 
 export default function ScreenerPage() {
   const [strategies, setStrategies] = useState<string[]>([])
+  const [auxStrategies, setAuxStrategies] = useState<string[]>([])
   const [data, setData] = useState<any[]>([])
   const [charts, setCharts] = useState<Record<string, { candles: any[], trades: { index: number, side: string }[] }>>({})
   const [loading, setLoading] = useState(false)
@@ -19,8 +20,10 @@ export default function ScreenerPage() {
   useEffect(() => {
     (async () => {
       try {
-        const strats = await getStrategies()
+        const strats = await getStrategies('internal')
+        const auxStrats = await getStrategies('custom')
         setStrategies(strats)
+        setAuxStrategies(auxStrats)
         const defaultStart = dayjs().subtract(3, 'month')
         const defaultEnd = dayjs().hour(23).minute(23).second(0)
         form.setFieldsValue({ 
@@ -30,6 +33,7 @@ export default function ScreenerPage() {
         })
       } catch {
         setStrategies([])
+        setAuxStrategies([])
         const defaultStart = dayjs().subtract(3, 'month')
         const defaultEnd = dayjs().hour(23).minute(23).second(0)
         form.setFieldsValue({ 
@@ -49,8 +53,12 @@ export default function ScreenerPage() {
       const startTs = v.range?.[0] ? v.range[0].unix() : undefined
       const endTs = v.range?.[1] ? v.range[1].unix() : undefined
       
+      const selectedStrategies = []
+      if (v.strategy) selectedStrategies.push(v.strategy)
+      if (v.aux_strategy) selectedStrategies.push(v.aux_strategy)
+
       const res = await screener({
-        strategies: [v.strategy],
+        strategies: selectedStrategies,
         lookback: v.lookback,
         start_time: startTs,
         end_time: endTs
@@ -59,7 +67,7 @@ export default function ScreenerPage() {
       setData(list)
       setVisibleCount(60)
       const ordered = getOrdered(list)
-      await loadChartsFor(ordered.slice(0, 60), v.strategy)
+      await loadChartsFor(ordered.slice(0, 60), selectedStrategies)
     } catch (e: any) {
       message.error(e?.message || '选股失败')
     } finally {
@@ -84,7 +92,7 @@ export default function ScreenerPage() {
     return arr
   }
 
-  async function loadChartsFor(items: any[], strategy: string) {
+  async function loadChartsFor(items: any[], strategiesList: string[]) {
     const nextCharts: Record<string, { candles: any[], trades: { index: number, side: string }[] }> = { ...charts }
     const chunkSize = 6
     const v = form.getFieldsValue()
@@ -99,7 +107,7 @@ export default function ScreenerPage() {
         try {
           const cs = await getKlines({ code: item.code, start, end })
           const bt = await backtest({
-            strategy,
+            strategies: strategiesList,
             code: item.code,
             start,
             end,
@@ -128,7 +136,12 @@ export default function ScreenerPage() {
       setLoadingMore(true)
       const nextCount = Math.min(visibleCount + 60, ordered.length)
       const slice = ordered.slice(visibleCount, nextCount)
-      await loadChartsFor(slice, v.strategy)
+      
+      const selectedStrategies = []
+      if (v.strategy) selectedStrategies.push(v.strategy)
+      if (v.aux_strategy) selectedStrategies.push(v.aux_strategy)
+      
+      await loadChartsFor(slice, selectedStrategies)
       setVisibleCount(nextCount)
       setLoadingMore(false)
     }
@@ -155,6 +168,9 @@ export default function ScreenerPage() {
         <Form form={form} layout="inline">
           <Form.Item name="strategy" label="策略" rules={[{ required: true }]}>
             <Select style={{ width: 200 }} options={strategies.map(s => ({ value: s, label: s }))} />
+          </Form.Item>
+          <Form.Item name="aux_strategy" label="辅助">
+            <Select style={{ width: 200 }} allowClear options={auxStrategies.map(s => ({ value: s, label: s }))} />
           </Form.Item>
           <Form.Item name="range" label="时间范围">
              <DatePicker.RangePicker format="YYYY-MM-DD" />
