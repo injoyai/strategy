@@ -13,7 +13,7 @@ var _ Interface = (*BJExchange)(nil)
 type BJExchange struct{}
 
 func (BJExchange) Name() string {
-	return "北京交易所"
+	return "只选北交所"
 }
 
 func (BJExchange) Type() string { return DayKline }

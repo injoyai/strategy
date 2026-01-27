@@ -5,11 +5,13 @@ export const api = axios.create({
 })
 
 function unwrap(d: any) {
-  if (d && typeof d === 'object' && 'code' in d && 'data' in d) {
+  if (d && typeof d === 'object' && 'code' in d) {
     if (Number(d.code) !== 200) {
-      throw new Error(String(d.msg || '接口请求失败'))
+      throw new Error(String(d.msg || d.message || '接口请求失败'))
     }
-    return d.data
+    if ('data' in d) {
+      return d.data
+    }
   }
   return d
 }

@@ -1,8 +1,16 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { Card, Table, Space, Input, message, Row, Col, Button, Switch, Tag, Popconfirm, Modal, Form, Tooltip } from 'antd'
 import Editor from '@monaco-editor/react'
 import { getStrategyAll, createStrategy, updateStrategy, setStrategyEnable, deleteStrategy } from '../lib/api'
 import { PlusOutlined, ReloadOutlined } from '@ant-design/icons'
+import { MonacoLanguageClient } from 'monaco-languageclient'
+import { toSocket, WebSocketMessageReader, WebSocketMessageWriter } from 'vscode-ws-jsonrpc'
+import { MonacoVscodeApiWrapper } from 'monaco-languageclient/vscodeApiWrapper'
+import { configureDefaultWorkerFactory } from 'monaco-languageclient/workerFactory'
+import { registerExtension, ExtensionHostKind } from '@codingame/monaco-vscode-api/extensions'
+import * as vscode from 'vscode'
+
+let themeDefaultsRegistered = false
 
 export default function StrategyPage() {
   const [strategies, setStrategies] = useState<{ name: string, script?: string, enable?: boolean, package?: string }[]>([])
@@ -10,13 +18,99 @@ export default function StrategyPage() {
   const [scriptCode, setScriptCode] = useState<string>('')
   const [newVisible, setNewVisible] = useState(false)
   const [newForm] = Form.useForm()
+  const [isLspReady, setIsLspReady] = useState(false)
+  const editorRef = useRef<any>(null)
+  const clientRef = useRef<MonacoLanguageClient | null>(null)
+  const socketRef = useRef<WebSocket | null>(null)
+  const retryRef = useRef<any>(null)
+  const versionRef = useRef(1)
+  const changeDisposableRef = useRef<any>(null)
 
   // 使用固定类型名，避免生成不期望的类型名
   const FixedTypeName = 'Strategy'
 
-  const handleEditorDidMount = (editor: any, monaco: any) => {
-    const url = `ws://${window.location.host}/api/lsp`
+  // 定义 Action 枚举值
+  const CloseAction = { DoNotRestart: 1, Restart: 2 }
+  const ErrorAction = { Continue: 1, Shutdown: 2 }
+
+  useEffect(() => {
+    const initLsp = async () => {
+      try {
+        const wrapper = new MonacoVscodeApiWrapper({
+          $type: 'extended',
+          viewsConfig: {
+            $type: 'EditorService'
+          },
+          monacoWorkerFactory: configureDefaultWorkerFactory
+        })
+        const themeDefaults = {
+          name: 'theme-defaults',
+          publisher: 'vscode',
+          version: '1.0.0',
+          engines: {
+            vscode: '*'
+          },
+          contributes: {
+            themes: [
+              {
+                id: 'Default Dark Modern',
+                label: 'Dark+ (default dark)',
+                uiTheme: 'vs-dark',
+                path: './themes/dark_modern.json'
+              },
+              {
+                id: 'Default Light Modern',
+                label: 'Light+ (default light)',
+                uiTheme: 'vs',
+                path: './themes/light_modern.json'
+              }
+            ]
+          }
+        }
+        if (!themeDefaultsRegistered) {
+          const extensionBase = '/extensions/theme-defaults'
+          const extension = registerExtension(themeDefaults as any, ExtensionHostKind.LocalWebWorker, { path: extensionBase })
+          const origin = window.location.origin
+          const registerFileUrl = (extension as any).registerFileUrl
+          if (typeof registerFileUrl === 'function') {
+            registerFileUrl('package.nls.json', `${origin}${extensionBase}/package.nls.json`)
+            registerFileUrl('themes/dark_modern.json', `${origin}${extensionBase}/themes/dark_modern.json`)
+            registerFileUrl('themes/light_modern.json', `${origin}${extensionBase}/themes/light_modern.json`)
+          }
+          themeDefaultsRegistered = true
+        }
+        await wrapper.start()
+        setIsLspReady(true)
+      } catch (e) {
+        console.error('LSP Init Failed:', e)
+        setIsLspReady(true)
+      }
+    }
+    initLsp()
+  }, [])
+
+  const scheduleRetry = () => {
+    if (retryRef.current) return
+    retryRef.current = setTimeout(() => {
+      retryRef.current = null
+      startLsp()
+    }, 1500)
+  }
+
+  const startLsp = () => {
+    if (!isLspReady) {
+      scheduleRetry()
+      return
+    }
+    if (clientRef.current) return
+    if (!editorRef.current) {
+      scheduleRetry()
+      return
+    }
+    const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
+    const url = `${protocol}://${window.location.host}/api/lsp`
     const webSocket = new WebSocket(url)
+    socketRef.current = webSocket
 
     webSocket.onopen = () => {
       const socket = toSocket(webSocket)
@@ -26,21 +120,94 @@ export default function StrategyPage() {
       const languageClient = new MonacoLanguageClient({
         name: 'Go Language Client',
         clientOptions: {
-          documentSelector: ['go'],
+          documentSelector: [{ language: 'go', scheme: 'file' }],
+          workspaceFolder: {
+            uri: vscode.Uri.parse('file:///workspace'),
+            name: 'workspace',
+            index: 0
+          },
           errorHandler: {
             error: () => ({ action: ErrorAction.Continue }),
             closed: () => ({ action: CloseAction.DoNotRestart })
           }
         },
-        connectionProvider: {
-          get: () => {
-            return Promise.resolve({ reader, writer })
-          }
-        }
+        messageTransports: { reader, writer }
       })
+      clientRef.current = languageClient
       languageClient.start()
+      languageClient.onReady().then(() => {
+        const editor = editorRef.current
+        const model = editor?.getModel()
+        if (!model) return
+        const uri = model.uri?.toString?.() || 'file:///workspace/main.go'
+        const languageId = model.getLanguageId?.() || 'go'
+        languageClient.sendNotification('textDocument/didOpen', {
+          textDocument: {
+            uri,
+            languageId,
+            version: versionRef.current,
+            text: model.getValue()
+          }
+        })
+        if (changeDisposableRef.current?.dispose) {
+          changeDisposableRef.current.dispose()
+        }
+        changeDisposableRef.current = editor.onDidChangeModelContent(() => {
+          versionRef.current += 1
+          languageClient.sendNotification('textDocument/didChange', {
+            textDocument: {
+              uri,
+              version: versionRef.current
+            },
+            contentChanges: [{ text: model.getValue() }]
+          })
+        })
+      })
+    }
+
+    webSocket.onerror = () => {
+      socketRef.current = null
+      clientRef.current = null
+      scheduleRetry()
+    }
+
+    webSocket.onclose = () => {
+      socketRef.current = null
+      clientRef.current = null
+      scheduleRetry()
     }
   }
+
+  useEffect(() => {
+    startLsp()
+    return () => {
+      try { clientRef.current?.stop() } catch {}
+      clientRef.current = null
+      try { socketRef.current?.close() } catch {}
+      socketRef.current = null
+      if (changeDisposableRef.current?.dispose) {
+        changeDisposableRef.current.dispose()
+      }
+      changeDisposableRef.current = null
+      if (retryRef.current) {
+        clearTimeout(retryRef.current)
+        retryRef.current = null
+      }
+    }
+  }, [isLspReady])
+
+  const handleEditorDidMount = (editor: any, monaco: any) => {
+    editorRef.current = editor
+    const model = editor.getModel()
+    if (!model || model.uri?.scheme !== 'file') {
+      const uri = monaco.Uri.parse('file:///workspace/main.go')
+      const nextModel = monaco.editor.createModel(scriptCode || '', 'go', uri)
+      editor.setModel(nextModel)
+    }
+    startLsp()
+  }
+
+
 
   async function loadList() {
     try {
@@ -48,7 +215,8 @@ export default function StrategyPage() {
       setStrategies(list)
       // 保持初始为空，不自动选中或填充编辑器内容
       return list
-    } catch {
+    } catch (e: any) {
+      message.error(e?.message || '获取策略列表失败')
       setStrategies([])
       return []
     }
@@ -171,6 +339,7 @@ export default function StrategyPage() {
             <div style={{ height: '70vh' }}>
               <Editor
                 height="100%"
+                path="main.go" 
                 defaultLanguage="go"
                 theme="vs-dark"
                 value={scriptCode}
@@ -219,7 +388,10 @@ func (${FixedTypeName}) Signals(ks protocol.Klines) []int {
               setScriptName(n)
               setScriptCode(cur?.script || '')
               setNewVisible(false)
-            } catch {}
+            } catch (e: any) {
+              if (e?.errorFields) return
+              message.error(e?.message || '创建失败')
+            }
           }}
         >
           <Form form={newForm} layout="vertical">

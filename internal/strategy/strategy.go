@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/injoyai/logs"
 	"github.com/injoyai/strategy/internal/common"
 	"github.com/injoyai/strategy/internal/data"
 	"github.com/injoyai/tdx/extend"
@@ -22,15 +23,20 @@ type Interface interface {
 var strategies = map[string]Interface{}
 
 func Register(s Interface) {
+	logs.Debug(s.Name())
 	strategies[s.Name()] = s
 }
 
 func RegisterScript(s *Script) error {
+	if !s.Enable {
+		return nil
+	}
+
 	res, err := common.Script.Eval(s.Content())
 	if err != nil {
 		return err
 	}
-	res, err = common.Script.Eval(s.Package + ".Signal")
+	res, err = common.Script.Eval(s.FuncName())
 	if err != nil {
 		return err
 	}

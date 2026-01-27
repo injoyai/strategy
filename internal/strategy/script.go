@@ -59,8 +59,12 @@ type Script struct {
 	Package string
 }
 
+func (this *Script) FuncName() string {
+	return fmt.Sprintf("p_%s.Signal", this.Package)
+}
+
 func (this *Script) Content() string {
-	return fmt.Sprintf("package %s\n%s", this.Package, this.Script)
+	return fmt.Sprintf("package p_%s\n%s", this.Package, this.Script)
 }
 
 type CreateReq struct {

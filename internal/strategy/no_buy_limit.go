@@ -12,7 +12,7 @@ var _ Interface = (*SZExchange)(nil)
 type NoBuyLimit struct{}
 
 func (NoBuyLimit) Name() string {
-	return "无资金限制"
+	return "无资金要求"
 }
 
 func (NoBuyLimit) Type() string { return DayKline }

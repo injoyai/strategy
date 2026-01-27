@@ -6,7 +6,6 @@ import (
 
 	"github.com/injoyai/conv"
 	"github.com/injoyai/frame/fbr"
-	"github.com/injoyai/logs"
 	"github.com/injoyai/strategy/internal/common"
 	"github.com/injoyai/strategy/internal/strategy"
 )
@@ -77,19 +76,18 @@ func PutStrategy(c fbr.Ctx) {
 	c.CheckErr(err)
 
 	s.Script = req.Script
-	s.Enable = req.Enable
+	//s.Enable = req.Enable
 	s.Package = req.Name + conv.String(time.Now().Unix())
 
 	_, err = common.DB.Where("Name=?", req.Name).Cols("Script,Package").Update(s)
 	c.CheckErr(err)
 
-	if req.Enable {
-		logs.Debug(s)
-		err = strategy.RegisterScript(s)
-		c.CheckErr(err)
-	} else {
-		strategy.Del(req.Name)
-	}
+	//if req.Enable {
+	//	err = strategy.RegisterScript(s)
+	//	c.CheckErr(err)
+	//} else {
+	//	strategy.Del(req.Name)
+	//}
 
 	c.Succ(s)
 }
@@ -106,16 +104,16 @@ func PutStrategyEnable(c fbr.Ctx) {
 		c.Succ(nil)
 	}
 
-	_, err = common.DB.Where("Name=?", req.Name).Cols("Enable").Update(&strategy.Script{
-		Enable: req.Enable,
-	})
+	s.Enable = req.Enable
+	s.Package = req.Name + conv.String(time.Now().Unix())
+
+	_, err = common.DB.Where("Name=?", req.Name).Cols("Enable").Update(s)
 	c.CheckErr(err)
 
+	strategy.Del(req.Name)
 	if req.Enable {
 		err = strategy.RegisterScript(s)
 		c.CheckErr(err)
-	} else {
-		strategy.Del(req.Name)
 	}
 
 	c.Succ(nil)

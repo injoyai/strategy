@@ -14,6 +14,7 @@ var (
 )
 
 func main() {
+
 	err := common.Init()
 	logs.PanicErr(err)
 

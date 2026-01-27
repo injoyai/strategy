@@ -13,7 +13,7 @@ var _ Interface = (*SHExchange)(nil)
 type SHExchange struct{}
 
 func (SHExchange) Name() string {
-	return "上海交易所"
+	return "只选上交所"
 }
 
 func (SHExchange) Type() string { return DayKline }
