@@ -14,6 +14,34 @@ export default function StrategyPage() {
   // 使用固定类型名，避免生成不期望的类型名
   const FixedTypeName = 'Strategy'
 
+  const handleEditorDidMount = (editor: any, monaco: any) => {
+    const url = `ws://${window.location.host}/api/lsp`
+    const webSocket = new WebSocket(url)
+
+    webSocket.onopen = () => {
+      const socket = toSocket(webSocket)
+      const reader = new WebSocketMessageReader(socket)
+      const writer = new WebSocketMessageWriter(socket)
+
+      const languageClient = new MonacoLanguageClient({
+        name: 'Go Language Client',
+        clientOptions: {
+          documentSelector: ['go'],
+          errorHandler: {
+            error: () => ({ action: ErrorAction.Continue }),
+            closed: () => ({ action: CloseAction.DoNotRestart })
+          }
+        },
+        connectionProvider: {
+          get: () => {
+            return Promise.resolve({ reader, writer })
+          }
+        }
+      })
+      languageClient.start()
+    }
+  }
+
   async function loadList() {
     try {
       const list = await getStrategyAll()
@@ -147,6 +175,7 @@ export default function StrategyPage() {
                 theme="vs-dark"
                 value={scriptCode}
                 onChange={(v) => setScriptCode(v || '')}
+                onMount={handleEditorDidMount}
                 options={{
                   fontSize: 14,
                   minimap: { enabled: false },

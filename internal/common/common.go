@@ -31,7 +31,7 @@ func Init() error {
 		buildTime, err := time.Parse(time.DateOnly, BuildDate)
 		logs.PrintErr(err)
 		if err == nil && time.Now().Sub(buildTime) > time.Hour*24*180 {
-			logs.Err("数据获取失败,是否是版本太老?")
+			logs.Err("数据获取失败,请尝试更新版本")
 		}
 	}
 

@@ -27,6 +27,8 @@ func Run(port int) error {
 	)
 
 	s.Group("/api", func(g fbr.Grouper) {
+		g.GET("/lsp", LSPHandler)
+
 		g.Group("/strategy", func(g fbr.Grouper) {
 			g.GET("/names", GetStrategyNames)
 			g.GET("/all", GetStrategyAll)
