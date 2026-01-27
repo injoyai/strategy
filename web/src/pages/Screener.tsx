@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { Card, Form, Select, InputNumber, Button, Table, Tag, Space, message, Switch, Row, Col, DatePicker } from 'antd'
-import { getStrategies, screener, getKlines, backtest } from '../lib/api'
+import { getStrategies, screener } from '../lib/api'
 import PriceChart from '../components/PriceChart'
 import dayjs from 'dayjs'
 
@@ -75,7 +75,7 @@ export default function ScreenerPage() {
       setData(list)
       setVisibleCount(60)
       const ordered = getOrdered(list)
-      await loadChartsFor(ordered.slice(0, 60), selectedStrategies)
+      await loadChartsFor(ordered.slice(0, 60))
     } catch (e: any) {
       message.error(e?.message || '选股失败')
     } finally {
@@ -108,31 +108,28 @@ export default function ScreenerPage() {
     return `${n.toFixed(2)}`
   }
 
-  async function loadChartsFor(items: any[], strategiesList: string[]) {
+  async function loadChartsFor(items: any[]) {
     const nextCharts: Record<string, { candles: any[], trades: { index: number, side: string }[] }> = { ...charts }
     const chunkSize = 6
-    const v = form.getFieldsValue()
-    // 后端 GetKlines 和 Backtest 接口期望的时间格式是 YYYY-MM-DD
-    const start = v.range?.[0] ? v.range[0].format('YYYY-MM-DD') : undefined
-    const end = v.range?.[1] ? v.range[1].format('YYYY-MM-DD') : undefined
     
     for (let i = 0; i < items.length; i += chunkSize) {
       const batch = items.slice(i, i + chunkSize)
       const promises = batch.map(async (item) => {
         if (nextCharts[item.code]) return
         try {
-          const cs = await getKlines({ code: item.code, start, end })
-          const bt = await backtest({
-            strategies: strategiesList,
-            code: item.code,
-            start,
-            end,
-            cash: 100000,
-            size: 10,
-          })
+          const cs = Array.isArray(item.klines) ? item.klines : []
+          const trades = Array.isArray(item.trades) ? item.trades : []
+          const mappedTrades = trades.map((t: any) => {
+            const rawSide = t.side ?? t.Side ?? t.signal ?? t.Signal ?? t.s
+            const side = rawSide === 1 || rawSide === '1' ? 'buy' : rawSide === -1 || rawSide === '-1' ? 'sell' : String(rawSide || '')
+            const rawIndex = t.index ?? t.Index ?? t.i ?? t.idx
+            const index = typeof rawIndex === 'number' ? rawIndex : Number(rawIndex)
+            return { index, side }
+          }).filter((t: any) => Number.isFinite(t.index) && (t.side === 'buy' || t.side === 'sell'))
+          if (!cs.length) return
           nextCharts[item.code] = {
             candles: cs,
-            trades: bt.trades.map((t: any) => ({ index: t.index, side: t.side }))
+            trades: mappedTrades
           }
         } catch {
           // ignore
@@ -153,11 +150,7 @@ export default function ScreenerPage() {
       const nextCount = Math.min(visibleCount + 60, ordered.length)
       const slice = ordered.slice(visibleCount, nextCount)
       
-      const s1 = v.strategy || []
-      const s2 = v.aux_strategy || []
-      const selectedStrategies = [...s1, ...s2]
-      
-      await loadChartsFor(slice, selectedStrategies)
+      await loadChartsFor(slice)
       setVisibleCount(nextCount)
       setLoadingMore(false)
     }

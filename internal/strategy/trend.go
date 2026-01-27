@@ -5,11 +5,11 @@ import (
 )
 
 func init() {
-	//Register(&TrendUp{
-	//	Window:          8,  // 顶底判断窗口大小 (默认8)
-	//	MinKlines:       30, // 最小K线数量要求 (默认30)
-	//	MaxGainMultiple: 5,  // 高点涨幅和低点涨幅的最大差距倍数 (默认5)
-	//})
+	Register(&TrendUp{
+		Window:          8,  // 顶底判断窗口大小 (默认8)
+		MinKlines:       30, // 最小K线数量要求 (默认30)
+		MaxGainMultiple: 5,  // 高点涨幅和低点涨幅的最大差距倍数 (默认5)
+	})
 }
 
 // TrendUp 上升趋势策略
