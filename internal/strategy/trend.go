@@ -142,6 +142,9 @@ func (s *TrendUp) Signal(info extend.Info, day, min extend.Klines) bool {
 	if !(h1.Index < l1.Index && l1.Index < h2.Index && h2.Index < l2.Index) {
 		return false
 	}
+	if l1.Index-h1.Index < window || h2.Index-l1.Index < window || l2.Index-h2.Index < window {
+		return false
+	}
 
 	// 2. 验证价格形态
 	// 低点越来越高
