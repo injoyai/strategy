@@ -20,8 +20,8 @@ export default function ScreenerPage() {
   useEffect(() => {
     (async () => {
       try {
-        const strats = await getStrategies('internal')
-        const auxStrats = await getStrategies('custom')
+        const strats = await getStrategies('custom')
+        const auxStrats = await getStrategies('internal')
         setStrategies(strats)
         setAuxStrategies(auxStrats)
         const defaultStart = dayjs().subtract(3, 'month')
