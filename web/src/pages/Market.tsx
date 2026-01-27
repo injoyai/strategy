@@ -11,7 +11,7 @@ export default function MarketPage() {
   const [form] = Form.useForm()
   const [showMA, setShowMA] = useState(true)
   const [showBoll, setShowBoll] = useState(false)
-  const [showVertex, setShowVertex] = useState(true)
+  const [showVertex, setShowVertex] = useState(false)
   const [showVertex6, setShowVertex6] = useState(false)
   const [showVertex10, setShowVertex10] = useState(false)
 

@@ -15,7 +15,7 @@ export default function ScreenerPage() {
   const [loadingMore, setLoadingMore] = useState(false)
   const [showMA, setShowMA] = useState(true)
   const [showBoll, setShowBoll] = useState(false)
-  const [showVertex, setShowVertex] = useState(true)
+  const [showVertex, setShowVertex] = useState(false)
   const [showVertex6, setShowVertex6] = useState(false)
   const [showVertex10, setShowVertex10] = useState(false)
   const [sorter, setSorter] = useState<{ field?: string, order?: 'ascend' | 'descend' }>({})
