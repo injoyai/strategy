@@ -165,7 +165,9 @@ export default function PriceChart({ candles, trades, equity, signals, showBuy =
     { type: 'candlestick', name: 'K线', data: ohlc, itemStyle: { color: '#f5222d', color0: '#52c41a', borderColor: '#f5222d', borderColor0: '#52c41a' }, markLine: { symbol: ['none','none'], silent: true, data: [...(showBuy ? buyLines : []), ...(showSell ? sellLines : [])] } },
     ...(showMA ? [
       { type: 'line', name: 'SMA5', data: sma(5), smooth: true, showSymbol: false },
+      { type: 'line', name: 'SMA10', data: sma(10), smooth: true, showSymbol: false },
       { type: 'line', name: 'SMA20', data: sma(20), smooth: true, showSymbol: false },
+      { type: 'line', name: 'SMA30', data: sma(30), smooth: true, showSymbol: false },
     ] : []),
     ...(showBollinger ? [
       { type: 'line', name: '布林中轨', data: mid, smooth: true, showSymbol: false } as any,
@@ -222,7 +224,7 @@ export default function PriceChart({ candles, trades, equity, signals, showBuy =
     legend: { 
       top: 4,
       data: [
-        ...(showMA ? ['SMA5','SMA20'] : []),
+        ...(showMA ? ['SMA5','SMA10','SMA20','SMA30'] : []),
         ...(showBollinger ? ['布林中轨','布林上轨','布林下轨'] : []),
       ]
     },
