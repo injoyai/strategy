@@ -8,7 +8,7 @@
 | --- | --- | --- | --- | --- | --- |
 | DEC-01 | Blocked | 首期市场、资产类别、主频率、交易时区和日历来源 | 市场规则、真实数据验收、因子首发 | `GATE-M1-START` | ADR、市场能力表、代表性证券/日期样本 |
 | DEC-02 | Blocked | 供应商、账户权限、历史范围、修订/PIT 覆盖、预算与许可 | 真实 Provider 和数据可信度承诺 | `GATE-M1-START` | 官方接口/许可、账号探针、限流与字段样本 |
-| DEC-03 | Blocked | 个人本地或团队部署；数据量、并发、备份与恢复目标 | SQLite/PostgreSQL、认证、性能指标 | `GATE-M0-START` 可先按单机实验；`GATE-M1-START` 前必须定案 | 部署 ADR、容量模型、故障与恢复目标 |
+| DEC-03 | Partial（M0 假设 2026-09-12 已确认，见 ADR-0002） | 首期个人本地或团队部署；数据量、并发、备份与恢复目标 | SQLite/PostgreSQL、认证、性能指标 | `GATE-M0-START` 可先按单机实验；`GATE-M1-START` 前必须定案 | 部署 ADR、容量模型、故障与恢复目标 |
 | DEC-04 | Blocked | 仅研究、研究+模拟或包含实盘 | M4 范围 | `GATE-M4-START` | 独立交易范围与合规/风控要求 |
 | DEC-05 | Blocked | 与其他交易系统共享的模型、schema、包格式和兼容版本 | 成果包映射 | `GATE-M2-START`；M0 只实现内部 manifest | 跨系统契约与兼容性测试 |
 | DEC-06 | Blocked | 首个验收策略、初始资金/币种、费用、滑点、基准和价格口径 | 真实回测验收 | `GATE-M2-START` | 手算样本、模型版本与 metric policy |
@@ -17,14 +17,14 @@
 
 | ID | 状态 | 决策内容 | 约束与建议 | 门禁 |
 | --- | --- | --- | --- | --- |
-| IMP-01 | Blocked | Go module path 与最低 Go 版本 | module path 使用项目拥有且长期可控的路径；不写 `example.com` 占位后继续扩散 | `GATE-M0-START` |
-| IMP-02 | Proposed | 单仓库单 Go module，服务代码位于 `cmd/` 与 `internal/` | 与 Go 官方 server module 布局一致；将领域包保持为 internal，未来确需共享再拆 module | `GATE-M0-START` 批准 |
-| IMP-03 | Evaluate | 元数据数据库与驱动 | 单机少量并发可验证 SQLite；团队/多主机 Worker 选择 PostgreSQL。若使用 SQLite WAL，数据库文件必须在本机文件系统，并验证运行时包含已修复 WAL-reset 问题的版本 | 随 DEC-03 |
-| IMP-04 | Evaluate | 十进制定点库 | 验证 JSON 字符串解析、舍入、溢出、货币/数量单位和许可证；领域层包装类型，避免驱动类型渗透 | M0 值对象前 |
-| IMP-05 | Evaluate | HTTP 路由、日志、迁移、OpenAPI 生成与 TypeScript 客户端工具 | 优先标准库和小依赖；锁定版本、许可证与生成可重复性 | 对应代码首次合入前 |
+| IMP-01 | Approved（2026-09-12，ADR-0001） | module `github.com/injoyai/strategy`，go ≥ 1.26（toolchain 自动获取） | module path 使用项目拥有且长期可控的路径；不写 `example.com` 占位后继续扩散 | `GATE-M0-START` |
+| IMP-02 | Approved（2026-09-12，ADR-0001） | 单仓库单 Go module，服务代码位于 `cmd/` 与 `internal/` | 与 Go 官方 server module 布局一致；将领域包保持为 internal，未来确需共享再拆 module | `GATE-M0-START` 批准 |
+| IMP-03 | Partial（M0 用 SQLite，ADR-0002；随 DEC-03 于 GATE-M1-START 终定） | 元数据数据库与驱动 | M0：`modernc.org/sqlite`（纯 Go）+ WAL + 本机文件系统；团队/多主机 Worker 选择 PostgreSQL。若使用 SQLite WAL，数据库文件必须在本机文件系统，并验证运行时包含已修复 WAL-reset 问题的版本 | 随 DEC-03 |
+| IMP-04 | Approved（2026-09-12，ADR-0003） | `shopspring/decimal`，领域层包装类型 | 已验证 JSON 字符串解析、精确加法、非法输入拒绝与 MIT 许可；指数拒绝由 HTTP 边界解析器承担 | M0 值对象前 |
+| IMP-05 | Partial（2026-09-12，ADR-0003/0004） | 路由=标准库 `net/http`；迁移=`pressly/goose/v3`；日志=标准库 `log/slog`；TS 客户端=`openapi-typescript` + `openapi-fetch` | 优先标准库和小依赖；锁定版本、许可证与生成可重复性 | 对应代码首次合入前 |
 | IMP-06 | Proposed | 文件格式和布局 | M0 用小型可核查实现证明 manifest/原子发布；Parquet 库必须用代表性行情/因子矩阵基准后选择 | M1 大数据写入前 |
-| IMP-07 | Proposed | 单二进制、持久化队列、可分离 Worker | HTTP 与 Worker 组件可同进程部署，但不以内存队列作为事实源 | `GATE-M0-START` 批准 |
-| IMP-08 | Blocked | 前端路由、服务端状态库、测试框架的具体包和版本 | React/Vite/Ant Design/ECharts 已定；其余在最小原型中比较并锁定 | Web 初始化前 |
+| IMP-07 | Approved（2026-09-12，ADR-0002） | 单二进制 `researchd`、持久化队列、可分离 Worker | HTTP 与 Worker 组件可同进程部署，但不以内存队列作为事实源 | `GATE-M0-START` 批准 |
+| IMP-08 | Approved（2026-09-12，ADR-0004） | React Router v7、TanStack Query v5、Vitest + Testing Library、openapi-typescript + openapi-fetch | React/Vite/AntD(6)/ECharts(6) 已定；版本锁定于 `web/package.json` | Web 初始化前 |
 
 工程选型依据应记录在 `docs/adr/`。官方基线包括 [Go module 组织建议](https://go.dev/doc/modules/layout)、[SQLite WAL 的并发与同机限制](https://sqlite.org/wal.html)、[HTML SSE 标准](https://html.spec.whatwg.org/multipage/server-sent-events.html) 和 [WCAG 2.2](https://www.w3.org/TR/WCAG22/)。外部资料只作为证据，不替代本项目决策。
 

@@ -9,6 +9,7 @@ coverage.txt
 node_modules/
 web/dist/
 web/coverage/
+web/.local/
 *.tsbuildinfo
 
 # Generated contract artifacts (openapi.json is generated but committed as contract of record)

@@ -1,0 +1,23 @@
+{
+  "http": {
+    "addr": "127.0.0.1:8080"
+  },
+  "auth": {
+    "mode": "local"
+  },
+  "database": {
+    "path": "data/metadata.db"
+  },
+  "data": {
+    "root": "data"
+  },
+  "worker": {
+    "poll_interval": "1s",
+    "lease_ttl": "30s",
+    "drain_timeout": "15s"
+  },
+  "log": {
+    "level": "info",
+    "format": "json"
+  }
+}
