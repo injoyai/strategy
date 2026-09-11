@@ -1,6 +1,6 @@
 # Unified verification entry point for the strategy repository.
 # Usage:  .\scripts\verify.ps1 [-SkipWeb] [-KeepContract]
-# Steps:  gofmt -> go vet -> go test -> openapi build/check -> generated diff -> web (typecheck/build/test)
+# Steps:  gofmt -> go vet -> go test -> openapi build/check -> generated diff -> web (gen:api/diff/typecheck/build/test)
 [CmdletBinding()]
 param(
     [switch]$SkipWeb,
@@ -51,10 +51,22 @@ try {
         Write-Host "contract diff: clean"
     }
 
-    # 3. Web toolchain: typecheck, production build, unit tests.
+    # 3. Web toolchain: regenerate the TS schema, flag drift, then typecheck/build/test.
     if (-not $SkipWeb) {
         Push-Location web
         try {
+            Invoke-Step 'web gen:api' { npm run gen:api }
+            if (-not $KeepContract) {
+                # The generated TS schema must match the committed contract.
+                $webDiff = git diff -- src/api
+                if ($webDiff) {
+                    Write-Host "generated web/src/api schema has uncommitted changes:" -ForegroundColor Red
+                    Write-Host $webDiff -ForegroundColor Red
+                    $failed += 'web-contract-diff'
+                    throw 'generated web schema differs from committed version; run npm run gen:api and commit'
+                }
+                Write-Host "web contract diff: clean"
+            }
             Invoke-Step 'web typecheck' { npm run typecheck }
             Invoke-Step 'web build' { npm run build }
             # Vitest 5 unconditionally writes an API token under %LOCALAPPDATA%\vitest

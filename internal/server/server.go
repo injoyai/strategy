@@ -1,14 +1,11 @@
-// Package server owns the HTTP listener lifecycle for researchd.
-//
-// M0-01 delivers the shell only: timeouts, JSON error envelope for unknown
-// routes, and health endpoints. The full middleware chain (request IDs,
-// authentication, idempotency keys, error mapping) lands with M0-03.
+// Package server owns the HTTP listener lifecycle for researchd and the
+// /api/v1 contract surface. M0-03 completes the shell: request IDs,
+// authentication, idempotency keys, single-point error mapping and shared
+// pagination live in the sibling files; this file only wraps http.Server.
 package server
 
 import (
 	"context"
-	"encoding/json"
-	"log/slog"
 	"net/http"
 	"time"
 
@@ -26,11 +23,10 @@ const (
 // Server wraps http.Server with process lifecycle helpers.
 type Server struct {
 	srv *http.Server
-	log *slog.Logger
 }
 
 // New builds the server around a root handler.
-func New(cfg config.HTTP, log *slog.Logger, handler http.Handler) *Server {
+func New(cfg config.HTTP, handler http.Handler) *Server {
 	return &Server{
 		srv: &http.Server{
 			Addr:              cfg.Addr,
@@ -41,7 +37,6 @@ func New(cfg config.HTTP, log *slog.Logger, handler http.Handler) *Server {
 			IdleTimeout:       idleTimeout,
 			MaxHeaderBytes:    maxHeaderBytes,
 		},
-		log: log,
 	}
 }
 
@@ -58,35 +53,4 @@ func (s *Server) ListenAndServe() error {
 // until ctx expires.
 func (s *Server) Shutdown(ctx context.Context) error {
 	return s.srv.Shutdown(ctx)
-}
-
-// NewMux returns the M0-01 root handler with health endpoints only.
-func NewMux(log *slog.Logger) *http.ServeMux {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
-	})
-	mux.HandleFunc("/readyz", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]string{"status": "ready"})
-	})
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		log.DebugContext(r.Context(), "unmatched route",
-			slog.String("method", r.Method), slog.String("path", r.URL.Path))
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
-	})
-	return mux
-}
-
-func writeJSON(w http.ResponseWriter, status int, body any) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(body)
 }

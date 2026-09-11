@@ -61,6 +61,13 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	auth, err := server.NewAuthenticator(cfg.Auth)
+	if err != nil {
+		return err
+	}
+	api := server.NewAPI(server.Options{Log: log, Auth: auth})
+	registerAPIRoutes(api)
+
 	var pool worker.Pool
 
 	// Worker loop placeholder: the persistent job loop lands in M0-05. It must
@@ -69,7 +76,7 @@ func run() error {
 		<-taskCtx.Done()
 	})
 
-	srv := server.New(cfg.HTTP, log, server.NewMux(log))
+	srv := server.New(cfg.HTTP, server.RootMux(log, api))
 	errCh := make(chan error, 1)
 	go func() { errCh <- srv.ListenAndServe() }()
 	log.Info("researchd listening", slog.String("addr", cfg.HTTP.Addr))
@@ -100,4 +107,12 @@ func run() error {
 
 	log.Info("researchd stopped")
 	return nil
+}
+
+// registerAPIRoutes wires business endpoints onto the API. The contract shell
+// (auth, request IDs, idempotency, pagination, error mapping) is fully active
+// from M0-03; concrete handlers are registered from M0-05 onward as vertical
+// slices land. Until then the API serves /api/v1 with a contract-shaped 404.
+func registerAPIRoutes(api *server.API) {
+	_ = api
 }
