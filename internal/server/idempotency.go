@@ -22,42 +22,26 @@ import (
 	"time"
 
 	"github.com/injoyai/strategy/internal/domain"
+	"github.com/injoyai/strategy/internal/ports"
 )
 
 const (
 	// IdempotencyReplayWindow is the contract minimum ("24 hours or more").
-	IdempotencyReplayWindow = 24 * time.Hour
+	IdempotencyReplayWindow = ports.IdempotencyReplayWindow
 	// idempotencyKeyMin/Max mirror the OpenAPI header parameter bounds.
 	idempotencyKeyMin = 8
 	idempotencyKeyMax = 128
 	// workspaceDefault is the single M0 workspace. The scope string layout
-	// keeps a reserved field so persistence (M0-04) needs no migration.
+	// keeps a reserved field so persistence needs no migration.
 	workspaceDefault = "default"
 )
 
-// IdempotencyRecord is the durable state of one idempotent request claim.
-type IdempotencyRecord struct {
-	Scope       string    `json:"scope"`
-	Key         string    `json:"key"`
-	RequestHash string    `json:"request_hash"`
-	Status      int       `json:"status"` // 0 while the request is in flight
-	Body        []byte    `json:"body,omitempty"`
-	Location    string    `json:"location,omitempty"`
-	CreatedAt   time.Time `json:"created_at"`
-	ExpiresAt   time.Time `json:"expires_at"`
-}
-
-// InFlight reports whether the record has been claimed but not completed.
-func (r IdempotencyRecord) InFlight() bool { return r.Status == 0 }
-
-// IdempotencyStore persists idempotency claims. Begin must be atomic per
-// (scope, key): exactly one concurrent caller claims; the others observe the
-// existing record. The SQLite-backed implementation arrives with M0-04
-// (idempotency_records table); the memory store below is single-process.
-type IdempotencyStore interface {
-	Begin(scope, key, requestHash string, now time.Time) (existing *IdempotencyRecord, claimed bool, err error)
-	Commit(record IdempotencyRecord) error
-}
+// IdempotencyRecord and IdempotencyStore are defined in ports so storage
+// packages can implement them without importing the HTTP layer.
+type (
+	IdempotencyRecord = ports.IdempotencyRecord
+	IdempotencyStore  = ports.IdempotencyStore
+)
 
 // MemoryIdempotencyStore is an in-process IdempotencyStore for tests and
 // single-process deployments.

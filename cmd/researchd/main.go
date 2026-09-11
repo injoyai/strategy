@@ -20,9 +20,11 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/injoyai/strategy/internal/artifacts"
 	"github.com/injoyai/strategy/internal/config"
 	"github.com/injoyai/strategy/internal/logging"
 	"github.com/injoyai/strategy/internal/server"
+	"github.com/injoyai/strategy/internal/store"
 	"github.com/injoyai/strategy/internal/worker"
 )
 
@@ -65,7 +67,26 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	api := server.NewAPI(server.Options{Log: log, Auth: auth})
+
+	db, err := store.Open(cfg.Database.Path)
+	if err != nil {
+		return fmt.Errorf("open metadata store: %w", err)
+	}
+	defer db.Close()
+	if err := store.Migrate(ctx, db, log); err != nil {
+		return fmt.Errorf("migrate metadata store: %w", err)
+	}
+
+	art := artifacts.New(cfg.Data.Root)
+	if err := art.VerifyReferencedFiles(ctx, db); err != nil {
+		return fmt.Errorf("verify artifacts: %w", err)
+	}
+
+	api := server.NewAPI(server.Options{
+		Log:         log,
+		Auth:        auth,
+		Idempotency: store.NewIdempotencyStore(db),
+	})
 	registerAPIRoutes(api)
 
 	var pool worker.Pool
