@@ -1,0 +1,33 @@
+# Go
+/bin/
+*.exe
+*.test
+*.out
+coverage.txt
+
+# Node / web
+node_modules/
+web/dist/
+web/coverage/
+*.tsbuildinfo
+
+# Generated contract artifacts (openapi.json is generated but committed as contract of record)
+# web/src/api/schema.d.ts is generated -> not committed; regenerate via scripts
+
+# Local runtime data
+/data/
+*.db
+*.db-wal
+*.db-shm
+*.sqlite*
+config.local.json
+config.local.yaml
+
+# IDE / OS
+.idea/
+.vscode/
+Thumbs.db
+.DS_Store
+
+# Local tool artifacts
+premium-audit.json
