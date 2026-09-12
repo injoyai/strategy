@@ -2,7 +2,7 @@
 
 目标：在不选择具体市场和真实供应商的前提下，交付可启动、可恢复、可审计的最小纵向切片。完成后可以从浏览器提交 synthetic 数据更新，观察持久化 Job，查看批次质量并发布不可变快照。
 
-状态快照（2026-09-12）：M0-01..05 已实现并进入统一验证；M0-06 的 synthetic、质量、Batch/Snapshot 与 PIT DataView 代码已存在，但 HTTP 端点和 Worker handler 接线尚未完成；M0-07/08 未完成。以下章节同时作为既有实现约束和剩余交付清单，不能把局部包测试当作 `GATE-M0-DONE`。
+状态快照（2026-09-12）：M0-01..08 已在 `m0-foundation` 分支交付——后端契约/迁移链、Job 生命周期与租约/fencing 恢复、synthetic 数据面、批次/质量/快照流水线、受限导入边界（受限上传、checksum、schema 探测、错误行报告），以及 `/connections`、`/data`、`/jobs` 最小页面均已合入。统一验证入口 `scripts/verify.ps1` 在集成基线上通过（gofmt、go vet、go test ./...、OpenAPI 生成与契约检查、前端 typecheck/build 与 vitest）；`TestM0VerticalSliceAcceptance` 经真实 HTTP mux 与 `jobs.Loop` 走通 synthetic 更新 → 入库 → SSE 恢复 → 批次/质量 → 故障重试 → 严格 PIT 快照 → 重启持久化。以上构成 `GATE-M0-DONE` 五项判据的工程证据，门禁是否通过由 Integrator 依据统一验证确认；真实数据/PIT 与供应商探测仍属 `GATE-M1-START`（见 `m1-data-factor.md`）。以下章节作为既有实现约束与验收参照保留，不把局部包测试当作门禁证据。
 
 ## 1. M0 不做什么
 
