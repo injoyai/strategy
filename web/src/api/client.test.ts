@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createApiClient, normalizeApiError } from "./client";
+import { createApiClient, newIdempotencyKey, normalizeApiError } from "./client";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -61,6 +61,28 @@ describe("createApiClient", () => {
     for (const request of requests) {
       expect(request.headers.get("authorization")).toBe("Bearer secret-token");
     }
+  });
+
+  it("preserves the idempotency key supplied for a write operation", async () => {
+    const requests = stubFetch(201, {});
+    const client = createApiClient({ baseUrl: "http://test.local/api/v1" });
+
+    await client.POST("/connections", {
+      params: { header: { "Idempotency-Key": "connection-create-1" } },
+      body: {
+        name: "synthetic",
+        provider_ref: { id: "synthetic", version: "v1" },
+        settings: {},
+      },
+    });
+
+    expect(requests[0]!.method).toBe("POST");
+    expect(requests[0]!.headers.get("idempotency-key")).toBe("connection-create-1");
+    expect(requests[0]!.headers.get("x-request-id")).toMatch(UUID_PATTERN);
+  });
+
+  it("creates browser-safe idempotency keys", () => {
+    expect(newIdempotencyKey()).toMatch(/^web_[0-9a-f-]{36}$/i);
   });
 });
 
