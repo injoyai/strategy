@@ -35,9 +35,11 @@ cd web; npm install; npm run dev
 | [Go 接口草案](docs/contracts/contracts.go) | 可编译的内部扩展接口及领域类型，非业务实现 |
 | [HTTP OpenAPI](docs/api/openapi.json) | 前后端集成使用的机器可读 API 草案 |
 | [因子与数据源清单](docs/factor-data-catalog.md) | K 线、PE、财报等数据需求、因子依赖及供应商评估 |
+| [选股功能设计](docs/stock-screening-design.md) | 条件筛选、因子排名、历史时点、结果解释、界面与待接入接口；尚未实现 |
+| [历史选股与手动模拟交易](docs/historical-replay-trading-design.md) | 逐日复盘、人工买卖、撮合与账户、恢复和报告；参考成熟项目的设计提案 |
 | [界面操作需求](docs/frontend.md) | 前端选型、页面、端到端操作与异常状态 |
 | [设计方向](DESIGN.md) | 未来工作台的布局、颜色、排版约定 |
-| [实施文档](docs/implementation/README.md) | 决策门禁、M0-M2 工作包、前端交付与验收追踪 |
+| [实施文档](docs/implementation/README.md) | M0-M3、选股、历史手动复盘、M4 边界、前端、验收追踪与多 Agent 并发规范 |
 | [验证记录](docs/verification.md) | 本轮实际检查与未执行的运行验收 |
 
 版本：0.1，2026-09-12。Go 后端为已确认要求；前端方案由本轮选定；首期市场、交易频率、供应商、交易接入范围待确认。文档中的候选数据源不代表已经购买、授权或验证可用。

@@ -6,6 +6,8 @@
 
 每个 Backtest Run 冻结：Snapshot、UniverseVersion、StrategyVersion、MarketRules、CostModel、FillModel、MetricPolicy、区间、频率、决策时区、初始资金/币种、基准、价格政策、随机 seed、严格 PIT 和 ValidationSplit。任何引用缺失或版本不匹配都在预检失败，不回退到 latest。
 
+历史手动复盘不是 Backtest Run：它没有 StrategyVersion 或 ValidationSplit，由 ReplaySession 与人工命令提供决策输入。两条流程只共享市场规则、订单、成交、费用、账本、估值和指标实现，不能复用不匹配的 HTTP DTO 或生命周期。
+
 Run 创建后输入不可变；重跑创建新 Run/Job 并记录 `source_run_id`。Job 负责执行生命周期，Run 负责研究身份与证据；Job 重试不得生成多个可见终态结果。
 
 ## 2. 固定事件顺序
@@ -92,6 +94,12 @@ Ledger 是现金、持仓、可卖数量、成本、实现/未实现损益和权
 
 手算 oracle 对每个事件列出期初现金/持仓、订单、成交、费用、公司行为、期末现金/持仓/市值/权益，逐行与 ledger entries 对平。浮点只用于统计，账本使用 decimal。
 
+### 5.4 共用模拟核心的两种驱动
+
+共用核心输入为冻结模型、合法 OrderIntent、顺序市场事件和独立 Ledger，不感知浏览器或 Strategy。自动回测由 Strategy → PortfolioConstructor 产生订单；手动复盘由已授权且带 session revision 的 ManualOrderCommand 产生订单。两者都必须经过相同 MarketRules、reservation/资金边界、FillSimulator、CostModel 与 Ledger。
+
+人工订单需要冻结资金/库存、订单状态和跨日 pending state；这些能力若先由 Replay 切片实现，应放入共用领域包并补自动回测兼容测试，不能留在 `internal/replay` 私有 handler 中形成第二套成交语义。Replay 的完整实施见 [M2R 文档](m2-manual-replay.md)。
+
 ## 6. R4 结果发布与确定性
 
 运行先写私有暂存输出。成功路径：
@@ -137,6 +145,8 @@ Experiment manifest 是研究索引，不复制或覆盖原 Run 证据。列表�
 | M2-09 | Experiment/Compare/Export | M2-08 | 兼容检查、checksum、许可 |
 | M2-10 | 策略/回测/实验页面闭环 | 所有 API | AC-09/10、失败与恢复 |
 
+M2R 可在 M2-02、M2-05、M2-06 的共用模型与账本稳定后并行推进 RP-03/04，不必等待自动策略页面和实验对比全部完成；但 `GATE-M2-DONE` 与 `GATE-REPLAY-DONE` 分别验收，互不冒充。
+
 ## 10. M2 测试矩阵
 
 | 场景 | 断言 |
@@ -153,4 +163,3 @@ Experiment manifest 是研究索引，不复制或覆盖原 Run 证据。列表�
 | 导出 | manifest/checksum/权限/许可可验证 |
 
 M2 只有在浏览器完整执行“策略→预检→回测→报告→对比→导出”、手算 oracle 与故障测试都通过后完成。单个高收益示例不是软件验收证据。
-

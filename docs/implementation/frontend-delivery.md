@@ -10,7 +10,7 @@
 web/src/app/                 路由、Provider、错误边界、全局布局
 web/src/api/generated/       OpenAPI 生成代码，禁止手改
 web/src/api/runtime/         auth、request-id、idempotency、SSE、错误适配
-web/src/features/            connections/data/universes/factors/strategies/backtests/experiments/jobs
+web/src/features/            connections/data/universes/factors/screeners/strategies/backtests/replay/experiments/jobs
 web/src/components/          ResearchContextBar/PagedTable/SchemaForm/JobStatus/IssueList/MetricValue/ArtifactDownload
 web/src/theme/tokens.ts      唯一设计 token 源并映射 Ant/CSS/ECharts
 web/src/test/                render 工具、MSW/等价 API fixture、a11y helper
@@ -25,7 +25,9 @@ feature 可以引用共享组件与 generated API，不能跨 feature 导入私�
 | --- | --- | --- |
 | M0 | `/connections`、`/data`、`/jobs` | synthetic 连接→更新→任务→质量→快照；刷新/断线可恢复 |
 | M1 | `/universes`、`/factors`、`/factors/:id` | 历史成员预览、因子预检/运行/分析、缺依赖回链 |
+| M1S | `/screeners`、`/screeners/new`、`/screeners/:id`、`/screen-runs/:id` | 方案→预检→运行→解释→静态池/导出；0 结果和数据不足可解释 |
 | M2 | `/strategies`、`/backtests/new`、`/backtests/:id`、`/experiments` | 策略版本、回测闭环、对比、重跑、导出 |
+| M2R | `/replay-sessions`、`/replay-sessions/new`、`/replay-sessions/:id` | 历史时点选股、人工委托、单日推进、账户、结束与报告 |
 
 未交付路由显示明确的阶段和依赖，不放静态假数据或可点击的无效主操作。
 
@@ -41,6 +43,8 @@ feature 可以引用共享组件与 generated API，不能跨 feature 导入私�
 
 研究引用（snapshot、universe、strategy、model、range）由 `ResearchContextBar` 展示，并从后端资源/URL 恢复。运行启动后详情读取冻结的 Run 配置，不继续绑定可编辑草稿。
 
+选股额外区分 ScreenerVersion、ScreenRun 和临时表格筛选；只有前两者是研究事实。Replay 页以服务端 Session `current_as_of + revision` 为页面一致性边界，账户、图表、订单和选股都必须来自同一 revision；未提交订单表单仅是本地草稿。
+
 ### 3.2 HTTP runtime
 
 - generated client 只负责 schema/调用；runtime 统一加入 Bearer、`X-Request-ID` 和写请求 `Idempotency-Key`。
@@ -50,6 +54,8 @@ feature 可以引用共享组件与 generated API，不能跨 feature 导入私�
 - 价格、金额、数量保持字符串直到格式化展示；不经过 JavaScript number。
 - 日期/时间 API 保留 offset，显示时明确时区；交易时区来自模型而不是浏览器 locale。
 - 下载先读取 Artifact 元信息，再由受权 content 端点获取；不拼文件系统路径。
+- Replay 写命令同时发送 Idempotency-Key 与页面最后确认的 expected_revision；409 后读取最新 Session，不能自动用新 revision 重发交易。
+- Replay data/query、图表和选股不允许请求晚于 current_as_of 的范围，响应缓存键包含 session/revision；浏览器不得预加载未来数据。
 
 ## 4. 分页、搜索与竞态
 
@@ -107,6 +113,22 @@ Secret 字段单独组件：只写、不回显、不进入 URL/localStorage/日�
 
 优先完成真实纵向路径，不先批量搭建只有静态壳的所有页面。
 
+### 8.1 选股页面专项
+
+- 方案编辑明确区分条件、排名/评分、selection 和展示列；AND/OR/NOT 可用按钮与键盘编辑，不强制拖拽。
+- 每个输入显示类型、单位、频率、可用历史与因子参数。unknown、false、排名不足和仅展示缺失使用不同文字状态。
+- 保存方案不触发运行；运行绑定 snapshot/universe/as_of；重新运行创建新 ScreenRun。
+- 结果表的 UI 搜索/分页/展示排序不改变正式成员/rank。保存静态池始终使用完整入选集合；导出 scope 明确。
+- 解释抽屉显示节点 truth、输入时间/修订、评分分量与排除阶段；0 结果解释母池空、条件不满足或排名数据不足，不自动放宽。
+
+### 8.2 历史复盘页面专项
+
+- 页首持续显示“历史复盘”、历史日期/时区、snapshot、revision 和质量限制；现实时间只用于操作日志。
+- K 线可见区间有清楚截止线，tooltip、指标和自动缩放不读取未来。网络测试验证响应/缓存无未来数据。
+- 下单表单说明参考价格时点与最早可能成交时段；受理反馈不能写“成交”。持仓不随当日选股/母池变化消失。
+- “下一交易日”只推进一天；advancing 时锁定下单/撤单/再次推进，刷新恢复同一 Job。跨标签冲突提示刷新事实。
+- 账户、订单、成交、事件和图表只渲染同一已提交 revision。结束确认明确“取消余量并保留持仓”，不能写成自动平仓。
+
 ## 9. 图表实施
 
 ECharts 数据来自版本化 Report/ResearchSeries：
@@ -131,6 +153,6 @@ ECharts 数据来自版本化 Report/ResearchSeries：
 - OpenAPI 生成代码与 JSON 同步，生成目录无手改。
 - TypeScript strict、lint、unit/component/build 通过。
 - 每个阶段关键路径的浏览器报告，包含成功、422、403、429/重试、500、取消、SSE 断线/410、刷新恢复。
+- 选股覆盖三值条件、全局排序、0 结果、解释、完整名单保存与 scope 导出；Replay 覆盖 D+1 网络隔离、订单受理/推进、revision 冲突、服务重启和结束持仓。
 - 键盘、axe/等价自动扫描、人工焦点/图表摘要、窄视口截图。
 - 无 secret 落入 URL、localStorage、前端日志、测试快照或错误采集的验证。
-

@@ -160,11 +160,22 @@ Run 预检一次返回全部问题：数据集/字段缺失、历史不足、PIT
 | M1-08 | 因子分析与 artifact | M1-07 | 覆盖/null reason/标签隔离 |
 | M1-09 | 数据、标的池、因子页面闭环 | API 完成 | 仅界面跑通成功/失败/重试 |
 
-## 9. M1 完成证据
+## 9. 向选股与历史复盘提供的边界
+
+M1 不在 DataView 内实现筛选语法，也不让选股绕过 FactorEngine：
+
+- DataView 为 ScreenRun/ReplaySession 提供固定 `snapshot + as_of` 的字段与历史查询；调用方不能覆盖可见上界。
+- UniverseResolver 返回当时母池，选股条件只在其成员上执行；Replay 持仓即使退出母池仍通过显式持仓查询保留。
+- FactorEngine 先按因子声明的完整横截面和窗口计算，再由选股执行硬条件；优化不得先缩小母体而改变因子值。
+- Dataset/Factor 能力目录需提供类型、单位、频率、staleness、历史覆盖和支持操作，供选股 preflight 与表单使用。
+- DataView/Factor 缓存需把 Replay 的 session/revision/as_of 纳入调用方缓存键，禁止跨历史日期泄漏未来值。
+
+选股的具体工作包见 [M1S 选股实施](m1-screening.md)。Replay 的会话时点查询见 [M2R 手动历史复盘实施](m2-manual-replay.md)。这些消费者不改变 M1 的 PIT、修订、单位和严格模式规则。
+
+## 10. M1 完成证据
 
 - 真实 Provider 样本证据与限制矩阵，不包含凭据。
 - schema、mapping、availability 与 quality policy 的版本和变更说明。
 - AC-01..05 自动化结果；PIT 反例和历史成分 fixture 可复跑。
 - 数据规模、查询、因子缓存、磁盘占用与恢复基准；阈值来自 DEC-03，不临时自定。
 - 从连接到因子分析的浏览器录像/报告和 artifact checksum。
-
