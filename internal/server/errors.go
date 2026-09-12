@@ -46,7 +46,8 @@ func StatusForError(code string) int {
 		return http.StatusGone
 	case domain.CodeResourceConflict,
 		domain.CodeResourceVersionMismatch,
-		domain.CodeIdempotencyConflict:
+		domain.CodeIdempotencyConflict,
+		domain.CodeIdempotencyKeyExpired:
 		return http.StatusConflict
 	case domain.CodePaginationCursorExpired:
 		return http.StatusUnprocessableEntity

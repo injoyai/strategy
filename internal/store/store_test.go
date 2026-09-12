@@ -172,7 +172,7 @@ func TestIdempotencyStoreScopeIsolation(t *testing.T) {
 	}
 }
 
-func TestIdempotencyStoreExpiredClaimReclaimed(t *testing.T) {
+func TestIdempotencyStoreExpiredClaimNotReclaimed(t *testing.T) {
 	db := openTestStore(t)
 	s := NewIdempotencyStore(db)
 	now := time.Now().UTC()
@@ -180,13 +180,17 @@ func TestIdempotencyStoreExpiredClaimReclaimed(t *testing.T) {
 	if _, claimed, _ := s.Begin("s", "k", "h", now); !claimed {
 		t.Fatal("initial claim failed")
 	}
-	// Before expiry: replay. After expiry: reclaimed with the new hash.
+	// Before expiry: replay. After expiry: the stored record is returned,
+	// never reclaimed for a silent re-execution.
 	if rec, claimed, _ := s.Begin("s", "k", "h", now.Add(ports.IdempotencyReplayWindow-time.Minute)); claimed || rec == nil {
 		t.Fatal("expected replay before expiry")
 	}
 	existing, claimed, err := s.Begin("s", "k", "h", now.Add(ports.IdempotencyReplayWindow+time.Minute))
-	if err != nil || !claimed || existing != nil {
-		t.Fatalf("expired claim not reclaimed: claimed=%v existing=%v err=%v", claimed, existing, err)
+	if err != nil || claimed || existing == nil {
+		t.Fatalf("expired claim: claimed=%v existing=%v err=%v, want the stored record", claimed, existing, err)
+	}
+	if existing.RequestHash != "h" {
+		t.Errorf("request hash = %q, want the original claim hash", existing.RequestHash)
 	}
 }
 

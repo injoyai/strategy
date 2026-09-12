@@ -6,8 +6,10 @@
 // the JSON body (object keys sorted, number literals preserved), so
 // semantically identical payloads replay while any change conflicts.
 //
-// Replay window: claims and stored responses expire after 24 hours
-// (contract minimum). Expired claims are treated as new requests.
+// Replay window: claims and stored responses are retained for 24 hours
+// (contract minimum). A key retried past the window conflicts with
+// idempotency.key_expired instead of re-executing; the client must mint a
+// new key.
 package server
 
 import (
@@ -55,12 +57,14 @@ func NewMemoryIdempotencyStore() *MemoryIdempotencyStore {
 	return &MemoryIdempotencyStore{records: make(map[string]IdempotencyRecord)}
 }
 
-// Begin implements IdempotencyStore. Expired records are reclaimed.
+// Begin implements IdempotencyStore. Existing records are never reclaimed:
+// an expired key is returned so the caller can reject it instead of
+// silently re-executing.
 func (s *MemoryIdempotencyStore) Begin(scope, key, requestHash string, now time.Time) (*IdempotencyRecord, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	mapKey := scope + "\x00" + key
-	if rec, ok := s.records[mapKey]; ok && now.Before(rec.ExpiresAt) {
+	if rec, ok := s.records[mapKey]; ok {
 		return &rec, false, nil
 	}
 	s.records[mapKey] = IdempotencyRecord{
@@ -73,8 +77,8 @@ func (s *MemoryIdempotencyStore) Begin(scope, key, requestHash string, now time.
 	return nil, true, nil
 }
 
-// Commit implements IdempotencyStore. Committing an expired or reclaimed
-// slot is a no-op error so handlers cannot resurrect stale claims.
+// Commit implements IdempotencyStore. Committing with a mismatched request
+// hash is a no-op error so a stale handler cannot overwrite the slot.
 func (s *MemoryIdempotencyStore) Commit(record IdempotencyRecord) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -170,7 +174,7 @@ func (a *API) idempotencyMiddleware(next http.Handler) http.Handler {
 		}
 		if err := a.idem.Commit(done); err != nil {
 			// The response already left; the log entry is the trace for why a
-			// retry of the same key will re-execute instead of replaying.
+			// retry of the same key conflicts instead of replaying.
 			a.log.Error("idempotency commit failed",
 				slog.String("request_id", RequestIDFrom(r.Context())),
 				slog.String("error", err.Error()))
@@ -178,10 +182,12 @@ func (a *API) idempotencyMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// replayOrConflict answers a repeated claim: identical payloads replay the
-// stored response, different payloads are a 409, and a claim that is still
-// in flight conflicts as well because its result does not exist yet.
+// replayOrConflict answers a repeated claim: different payloads and claims
+// still in flight are a 409, a key past the replay window is a 409
+// idempotency.key_expired (never silently re-executed), and identical
+// payloads within the window replay the stored response.
 func (a *API) replayOrConflict(w http.ResponseWriter, r *http.Request, existing IdempotencyRecord, hash string) {
+	now := a.clock.Now()
 	if existing.RequestHash != hash {
 		a.writeError(w, r, domain.NewError(domain.CodeIdempotencyConflict,
 			"Idempotency-Key was already used with a different request payload"))
@@ -190,6 +196,11 @@ func (a *API) replayOrConflict(w http.ResponseWriter, r *http.Request, existing 
 	if existing.InFlight() {
 		a.writeError(w, r, domain.NewError(domain.CodeIdempotencyConflict,
 			"a request with this Idempotency-Key is currently in progress"))
+		return
+	}
+	if !now.Before(existing.ExpiresAt) {
+		a.writeError(w, r, domain.NewError(domain.CodeIdempotencyKeyExpired,
+			"Idempotency-Key is past the retry window; use a new key"))
 		return
 	}
 	if existing.Location != "" {

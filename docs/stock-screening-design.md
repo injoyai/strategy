@@ -275,7 +275,7 @@ type ScreenOutputService interface {
 3. 现有 Experiment.kind 没有筛选运行。首期由 ScreenRun 独立保存研究证据，不修改该枚举；统一实验中心作为后续显式兼容变更。
 4. 静态 UniverseVersion 需要新增可选来源元信息：source_screen_run_id、as_of、snapshot hash、质量限制；保留已有 static 创建方式。
 5. 现有 `/exports` 未包含选股结果类型，本设计先采用独立选股导出入口，底层仍复用任务与产物服务，不悄悄更改既有导出枚举。
-6. 契约文档与当前实现的个别基础语义存在差异，例如游标错误状态与幂等键过期行为。选股实施前应统一这些共享约定及测试，不在新 handler 内引入第三套规则。本轮仅记录影响，不修改其他模块。
+6. 契约文档与当前实现的共享语义差异（游标错误状态、幂等键过期行为）已按 ADR-0005 统一：游标 400 结构非法 / 422 `pagination.cursor_expired` 超期，幂等过期键 409 `idempotency.key_expired` 且不悄悄再次执行。选股 handler 通过共享分页与幂等中间件继承同一套语义及测试，不引入第三套规则。
 
 ## 9. 界面操作设计
 

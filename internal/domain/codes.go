@@ -26,12 +26,13 @@ const (
 	CodePaginationCursorExpired = "pagination.cursor_expired"
 
 	// Transport and platform.
-	CodeAuthUnauthorized    = "auth.unauthorized"
-	CodeAuthForbidden       = "auth.forbidden"
-	CodeIdempotencyConflict = "idempotency.conflict"
-	CodeRateLimited         = "rate.limited"
-	CodeInternalError       = "internal.error"
-	CodeInternalUnavailable = "internal.unavailable"
+	CodeAuthUnauthorized      = "auth.unauthorized"
+	CodeAuthForbidden         = "auth.forbidden"
+	CodeIdempotencyConflict   = "idempotency.conflict"
+	CodeIdempotencyKeyExpired = "idempotency.key_expired"
+	CodeRateLimited           = "rate.limited"
+	CodeInternalError         = "internal.error"
+	CodeInternalUnavailable   = "internal.unavailable"
 
 	// Data quality (M0-06). Each rule surfaces an Issue; nothing is silently
 	// fixed. Severity is rule-specific; an error-severity issue blocks

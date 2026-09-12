@@ -27,6 +27,7 @@ func TestStatusForError(t *testing.T) {
 		{domain.CodeResourceConflict, http.StatusConflict},
 		{domain.CodeResourceVersionMismatch, http.StatusConflict},
 		{domain.CodeIdempotencyConflict, http.StatusConflict},
+		{domain.CodeIdempotencyKeyExpired, http.StatusConflict},
 		{domain.CodePaginationCursorExpired, http.StatusUnprocessableEntity},
 		{domain.CodeRateLimited, http.StatusTooManyRequests},
 		{domain.CodeInternalUnavailable, http.StatusServiceUnavailable},

@@ -37,7 +37,7 @@
 | IMP-06 | Proposed | 文件格式和布局 | M0 用小型可核查实现证明 manifest/原子发布；Parquet 库必须用代表性行情/因子矩阵基准后选择 | M1 大数据写入前 |
 | IMP-07 | Approved（2026-09-12，ADR-0002） | 单二进制 `researchd`、持久化队列、可分离 Worker | HTTP 与 Worker 组件可同进程部署，但不以内存队列作为事实源 | `GATE-M0-START` 批准 |
 | IMP-08 | Approved（2026-09-12，ADR-0004） | React Router v7、TanStack Query v5、Vitest + Testing Library、openapi-typescript + openapi-fetch | React/Vite/AntD(6)/ECharts(6) 已定；版本锁定于 `web/package.json` | Web 初始化前 |
-| IMP-09 | Blocked | 统一共享 HTTP 分页与幂等过期语义 | `interfaces.md` 与当前实现/设计记录对 cursor 过期状态、幂等窗口后行为存在差异；先统一正式契约与现有测试，新 handler 不得形成第三套规则 | `GATE-SCREEN-CONTRACT` / `GATE-REPLAY-CONTRACT` |
+| IMP-09 | Approved（2026-09-12，ADR-0005） | 统一共享 HTTP 分页与幂等过期语义 | 游标：400 结构非法 / 422 `pagination.cursor_expired` 超期；幂等键：同键异请求与在途均 409 `idempotency.conflict`，过期键 409 `idempotency.key_expired` 且不悄悄再次执行；新 handler 通过共享分页与幂等中间件继承，不得形成第三套规则 | `GATE-SCREEN-CONTRACT` / `GATE-REPLAY-CONTRACT` |
 | IMP-10 | Proposed | 选股和 Replay 首期不新增生产依赖 | 三值逻辑、排序、会话状态与检查点优先用现有 Go/SQLite/Artifact/Job 能力；外部排序或新文件格式需容量证据和 ADR | 对应依赖引入前 |
 
 工程选型依据应记录在 `docs/adr/`。官方基线包括 [Go module 组织建议](https://go.dev/doc/modules/layout)、[SQLite WAL 的并发与同机限制](https://sqlite.org/wal.html)、[HTML SSE 标准](https://html.spec.whatwg.org/multipage/server-sent-events.html) 和 [WCAG 2.2](https://www.w3.org/TR/WCAG22/)。外部资料只作为证据，不替代本项目决策。

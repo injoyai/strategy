@@ -61,7 +61,7 @@ HTTP 资源 `id` 唯一标识一个不可变版本记录；`version` 是该记�
 
 - 价格/数量/金额采用十进制字符串，统计数值为 JSON number，缺失用 null 加原因。
 - 资源列表：`limit` 默认 50、最大 200；`cursor` 不透明；`q`、`sort` 仅作用于声明字段，稳定排序追加 ID。
-- 筛选、排序变化后游标作废；无效或过期游标返回 400，客户端从首页重查。
+- 筛选、排序变化后游标作废；结构非法或排序不匹配的游标返回 400，超过 24 小时有效期的游标返回 422 `pagination.cursor_expired`，两种情况客户端都从首页重查。
 - 数据行接口另限每页 1000，超量查询必须分页或异步导出；拒绝无边界的大范围返回。
 - 未知字段默认拒绝；资源参数与扩展参数由各自 schema 校验。未来新增字段需遵循版本兼容性约定。
 - 创建配置/版本同步返回 201；耗时操作返回 202 Job 并带 `Location: /api/v1/jobs/{job_id}`；客户端必须看 Job 终态，不把 202 当成功完成。
@@ -69,7 +69,7 @@ HTTP 资源 `id` 唯一标识一个不可变版本记录；`version` 是该记�
 
 ### 4.1 幂等、并发与认证
 
-所有 POST 写操作要求 `Idempotency-Key`，按调用者/工作区/方法/路径限定作用域。相同键与相同规范化请求返回原响应；同键不同请求返回 409。首期 HTTP 重试窗口不少于 24 小时，过期键返回 409 `idempotency_key_expired` 而不是悄悄再次执行；必要的轻量键摘要保留至工作区删除。业务 Job 和 Run ID 另外永久去重至相关资源合法清理。
+所有 POST 写操作要求 `Idempotency-Key`，按调用者/工作区/方法/路径限定作用域。相同键与相同规范化请求返回原响应；同键不同请求返回 409。首期 HTTP 重试窗口不少于 24 小时，过期键返回 409 `idempotency.key_expired` 而不是悄悄再次执行；必要的轻量键摘要保留至工作区删除。业务 Job 和 Run ID 另外永久去重至相关资源合法清理。
 
 本稿不提供更新不可变版本的 PATCH。编辑通过创建下一版本；需要维护草稿时另加 ETag/If-Match，并先定义冲突解决，不套用最后写入覆盖。
 
@@ -93,11 +93,11 @@ OpenAPI 默认 Bearer 身份认证。个人本地无认证模式作为显式部�
 | 401 / 403 | 未认证 / 无资源权限 |
 | 404 | 资源或明确指定的版本不存在 |
 | 409 | 幂等冲突、状态冲突或结果尚未就绪 |
-| 422 | 数据依赖、因子参数、模型能力、PIT 或市场配置预检失败 |
+| 422 | 数据依赖、因子参数、模型能力、PIT 或市场配置预检失败；分页游标超过有效期 |
 | 429 | 本地限流或上游配额暂不可用，可附 Retry-After |
 | 500 / 503 | 内部故障 / 服务临时不可用；不返回供应商凭据或堆栈 |
 
-典型业务码：`unsupported_capability`、`missing_dataset`、`insufficient_history`、`pit_unverified`、`invalid_parameter`、`unknown_version`、`market_rules_required`、`result_not_ready`、`idempotency_conflict`、`cancel_not_allowed`。
+典型业务码：`unsupported_capability`、`missing_dataset`、`insufficient_history`、`pit_unverified`、`invalid_parameter`、`unknown_version`、`market_rules_required`、`result_not_ready`、`pagination.cursor_expired`、`idempotency.conflict`、`idempotency.key_expired`、`cancel_not_allowed`。
 
 ## 5. API 功能分组
 

@@ -1,7 +1,6 @@
 package server
 
 import (
-	"encoding/json"
 	"net/http"
 	"strings"
 	"testing"
@@ -56,7 +55,7 @@ func TestMemoryStoreScopeIsolation(t *testing.T) {
 	}
 }
 
-func TestMemoryStoreExpiryReclaim(t *testing.T) {
+func TestMemoryStoreExpiryNotReclaimed(t *testing.T) {
 	store := NewMemoryIdempotencyStore()
 	if _, claimed, _ := store.Begin("s", "k", "h", testBase); !claimed {
 		t.Fatal("expected initial claim")
@@ -65,10 +64,11 @@ func TestMemoryStoreExpiryReclaim(t *testing.T) {
 	if rec, claimed, _ := store.Begin("s", "k", "h", testBase.Add(IdempotencyReplayWindow-time.Minute)); claimed || rec == nil {
 		t.Fatalf("claim expired too early: claimed=%v rec=%v", claimed, rec)
 	}
-	// Past the window the key is reclaimable as a new request.
+	// Past the window the record is returned, never reclaimed for a silent
+	// re-execution.
 	rec, claimed, err := store.Begin("s", "k", "h", testBase.Add(IdempotencyReplayWindow+time.Minute))
-	if err != nil || !claimed || rec != nil {
-		t.Fatalf("expired claim: claimed=%v rec=%v err=%v, want reclaim", claimed, rec, err)
+	if err != nil || claimed || rec == nil {
+		t.Fatalf("expired claim: claimed=%v rec=%v err=%v, want the stored record", claimed, rec, err)
 	}
 }
 
@@ -77,8 +77,8 @@ func TestMemoryStoreCommitHashGuard(t *testing.T) {
 	if _, claimed, _ := store.Begin("s", "k", "hash-original", testBase); !claimed {
 		t.Fatal("expected initial claim")
 	}
-	// A commit carrying a different hash must not overwrite the claim, so an
-	// expired-then-reclaimed slot cannot be resurrected with stale output.
+	// A commit carrying a different hash must not overwrite the claim, so a
+	// stale handler cannot overwrite the stored response with foreign output.
 	err := store.Commit(IdempotencyRecord{Scope: "s", Key: "k", RequestHash: "hash-other"})
 	if err == nil {
 		t.Fatal("expected conflict error for mismatched hash")
@@ -235,7 +235,7 @@ func TestIdempotencyReplayAfterAccepted(t *testing.T) {
 	}
 }
 
-func TestIdempotencyExpiryReexecutes(t *testing.T) {
+func TestIdempotencyExpiryConflicts(t *testing.T) {
 	clock := fixedClock()
 	store := NewMemoryIdempotencyStore()
 	api := NewAPI(Options{Log: silentLogger(), Auth: LocalAuth{}, Clock: clock, Idempotency: store})
@@ -252,18 +252,25 @@ func TestIdempotencyExpiryReexecutes(t *testing.T) {
 		t.Fatalf("first: status=%d calls=%d", first.Code, calls)
 	}
 
-	// Past the replay window the same key executes again as a new request.
+	// Past the replay window the same key must not silently re-execute.
 	clock.Advance(IdempotencyReplayWindow + time.Minute)
 	again := doRequest(t, h, http.MethodPost, "/api/v1/things", headers, nil)
-	if again.Code != http.StatusOK || calls != 2 {
-		t.Fatalf("after expiry: status=%d calls=%d, want re-execution", again.Code, calls)
+	if again.Code != http.StatusConflict || calls != 1 {
+		t.Fatalf("after expiry: status=%d calls=%d, want 409 with no re-execution", again.Code, calls)
 	}
-	if again.Header().Get("Idempotent-Replay") != "" {
-		t.Error("a re-executed request must not be flagged as a replay")
+	if env := decodeWireError(t, again); env.Code != domain.CodeIdempotencyKeyExpired {
+		t.Errorf("code = %q, want idempotency.key_expired", env.Code)
 	}
-	var body map[string]int
-	if err := json.Unmarshal(again.Body.Bytes(), &body); err != nil || body["call"] != 2 {
-		t.Errorf("body = %s, want the second execution result", again.Body.String())
+
+	// A different payload on the same expired key still conflicts on the
+	// payload hash first.
+	different := doRequest(t, h, http.MethodPost, "/api/v1/things",
+		map[string]string{"Idempotency-Key": "expire-key-1"}, []byte(`{"name":"b"}`))
+	if different.Code != http.StatusConflict || calls != 1 {
+		t.Fatalf("different payload after expiry: status=%d calls=%d, want 409", different.Code, calls)
+	}
+	if env := decodeWireError(t, different); env.Code != domain.CodeIdempotencyConflict {
+		t.Errorf("code = %q, want idempotency.conflict", env.Code)
 	}
 }
 

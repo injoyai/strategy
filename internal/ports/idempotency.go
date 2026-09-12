@@ -29,8 +29,8 @@ func (r IdempotencyRecord) InFlight() bool { return r.Status == 0 }
 
 // IdempotencyStore persists idempotency claims. Begin must be atomic per
 // (scope, key): exactly one concurrent caller claims; the others observe the
-// existing record. Commit must refuse to resurrect a claim that was
-// reclaimed or never existed.
+// existing record, including expired ones (claims are never reclaimed).
+// Commit must refuse to overwrite a claim whose request hash differs.
 type IdempotencyStore interface {
 	Begin(scope, key, requestHash string, now time.Time) (existing *IdempotencyRecord, claimed bool, err error)
 	Commit(record IdempotencyRecord) error
