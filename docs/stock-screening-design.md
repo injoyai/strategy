@@ -1,8 +1,8 @@
 # 选股功能设计
 
-版本：0.1。日期：2026-09-12。状态：Proposed，待实施。
+版本：0.2。日期：2026-09-12。状态：Proposed，S1-01 契约已并入；实现待实施。
 
-本轮只提供设计文档。本文中的接口、数据结构、页面和工作包均为建议，尚未加入现有 OpenAPI、Go 服务或前端；不能据此声称选股功能已可运行。
+本文中的领域对象、HTTP 接口与验收 ID 已按 S1 契约切片进入主需求基线、OpenAPI 与生成类型；Go 服务、持久化与前端页面尚未实现，不能据此声称选股功能已可运行。
 
 ## 1. 目标与边界
 
@@ -27,7 +27,7 @@
 | SCREEN-07 | 成果衔接 | 保存静态标的池、导出 CSV/JSON；保留来源运行和时点证据 |
 | SCREEN-08 | 界面与任务 | 全部首期操作在界面完成；复用 Job 的进度、取消、重试与恢复 |
 
-这些是新增设计 ID，尚未并入主需求基线与自动化追踪。正式实施时应同步更新主需求、契约和实施矩阵。
+SCREEN-01..08 已并入主需求基线（[requirements.md](requirements.md)），SC-AC-01..12 的可执行化映射见[验证与追踪](implementation/verification-and-traceability.md)；实现完成前不代表对应能力已交付。
 
 ### 1.2 后续扩展
 
@@ -240,7 +240,7 @@ type ScreenOutputService interface {
 
 ## 8. HTTP 接口建议
 
-拟使用 `/api/v1` 前缀。下表是待纳入 OpenAPI 的候选契约，并非当前服务已支持的接口。
+接口使用 `/api/v1` 前缀。下表已按 S1-01 纳入 [OpenAPI 契约](api/openapi.json)；Go handler 与页面尚未实现。
 
 | 方法 | 相对路径 | 请求/响应与用途 |
 | --- | --- | --- |
@@ -270,10 +270,10 @@ type ScreenOutputService interface {
 
 ### 8.2 当前契约的衔接事项
 
-1. 现有 Expression 支持的操作符少于本文的条件树，不能直接发送新操作符并声称兼容。实施时新增独立 `ScreenCondition`/`ScreenInput` schema，复用已有因子引用和 Value；避免直接扩大所有策略表达式的权限。
-2. 现有 Job.result_refs 的枚举没有 screen_run；若采用该值，需要同步生成器、JSON、Go DTO/处理及 TypeScript 类型，审查旧消费者的未知枚举处理。
+1. 现有 Expression 支持的操作符少于本文的条件树，不能直接发送新操作符并声称兼容。S1-01 已新增独立 `ScreenCondition`/`ScreenInput` schema 并复用已有因子引用和 Value；既有策略表达式权限未被扩大。
+2. Job.result_refs 已按 S1-01 新增 `screen_run`：生成器、JSON、Go DTO 与 TypeScript 类型同步更新；Go 消费端以自由字符串解码，未知 kind 的兼容行为由测试固定。
 3. 现有 Experiment.kind 没有筛选运行。首期由 ScreenRun 独立保存研究证据，不修改该枚举；统一实验中心作为后续显式兼容变更。
-4. 静态 UniverseVersion 需要新增可选来源元信息：source_screen_run_id、as_of、snapshot hash、质量限制；保留已有 static 创建方式。
+4. 静态 UniverseVersion 已在契约中新增可选来源元信息 `source`（screen_run_id、as_of、snapshot hash、质量限制）；保留已有 static 创建方式。
 5. 现有 `/exports` 未包含选股结果类型，本设计先采用独立选股导出入口，底层仍复用任务与产物服务，不悄悄更改既有导出枚举。
 6. 契约文档与当前实现的共享语义差异（游标错误状态、幂等键过期行为）已按 ADR-0005 统一：游标 400 结构非法 / 422 `pagination.cursor_expired` 超期，幂等过期键 409 `idempotency.key_expired` 且不悄悄再次执行。选股 handler 通过共享分页与幂等中间件继承同一套语义及测试，不引入第三套规则。
 
@@ -362,7 +362,7 @@ type ScreenOutputService interface {
 | SC-AC-11 | 页面成功、预检失败、断线、键盘、窄视口 | 无手写 JSON 也能完成闭环；失败保留配置、空结果有原因 |
 | SC-AC-12 | 切换工作区、越权解释/下载、过期游标 | 按统一鉴权与分页规则拒绝，不泄露其他结果 |
 
-本轮只验证文档引用和设计一致性；上述 SC-AC 场景待功能实施，不代表已通过测试。
+SC-AC-01..12 已进入主需求验收表与自动化追踪；上述场景待功能实施，不代表已通过测试。
 
 ## 13. 参考依据与待确认项
 

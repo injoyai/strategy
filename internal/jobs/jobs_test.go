@@ -652,3 +652,25 @@ func TestPlaceholders(t *testing.T) {
 		t.Error("placeholders(2) must separate placeholders")
 	}
 }
+
+func TestJobToleratesUnknownResultRefKind(t *testing.T) {
+	s, _ := newTestStore(t)
+	ctx := context.Background()
+
+	job := createJob(t, s, "screen")
+	claimed, ok, err := s.Claim(ctx, "w1", []string{"screen"}, time.Minute)
+	if err != nil || !ok {
+		t.Fatalf("claim: ok=%v err=%v", ok, err)
+	}
+	final, won, err := s.Complete(ctx, job.ID, claimed.Token, []ResultRef{{Kind: "screen_run", ID: "run_1"}})
+	if err != nil || !won {
+		t.Fatalf("complete: won=%v err=%v", won, err)
+	}
+	got, err := s.Get(ctx, final.ID)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if len(got.ResultRefs) != 1 || got.ResultRefs[0].Kind != "screen_run" || got.ResultRefs[0].ID != "run_1" {
+		t.Fatalf("result refs = %+v, want screen_run/run_1", got.ResultRefs)
+	}
+}

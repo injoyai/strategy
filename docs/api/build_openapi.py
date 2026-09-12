@@ -124,7 +124,9 @@ S["UniverseDefinition"] = {"oneOf": [
          "filter": ref("Expression")}, ["kind", "membership_dataset", "membership_key"])
 ]}
 S["UniverseCreate"] = obj({"name": TEXT, "definition": ref("UniverseDefinition"), "parent_id": ID}, ["name", "definition"])
-S["Universe"] = obj({**S["UniverseCreate"]["properties"], "id": ID, "version": ID}, ["id", "version", "name", "definition"])
+S["Universe"] = obj({**S["UniverseCreate"]["properties"], "id": ID, "version": ID,
+    "source": {**nullable(ref("ScreenUniverseSource")), "description": "Present only when the universe was saved from a successful screening run."}},
+    ["id", "version", "name", "definition"])
 S["UniverseResolve"] = obj({"snapshot_id": ID, "as_of": TIME, "cursor": TEXT,
     "limit": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 200}}, ["snapshot_id", "as_of"])
 S["UniverseMembers"] = obj({"universe_ref": ref("VersionRef"), "as_of": TIME, "instrument_ids": array(ID),
@@ -175,7 +177,7 @@ S["Preflight"] = obj({"valid": BOOL, "issues": array(ref("Issue")), "estimated_r
 S["Job"] = obj({"id": ID, "run_id": nullable(ID), "parent_job_id": nullable(ID), "kind": TEXT,
     "state": enum("queued", "running", "cancel_requested", "succeeded", "failed", "cancelled"),
     "phase": TEXT, "completed": INT, "total": nullable(INT), "created_at": TIME, "updated_at": TIME,
-    "error": nullable(ref("Error")), "result_refs": array(obj({"kind": enum("batch", "snapshot", "import", "factor_run", "backtest", "artifact"), "id": ID}, ["kind", "id"]))},
+    "error": nullable(ref("Error")), "result_refs": array(obj({"kind": enum("batch", "snapshot", "import", "factor_run", "backtest", "screen_run", "artifact"), "id": ID}, ["kind", "id"]))},
     ["id", "run_id", "parent_job_id", "kind", "state", "phase", "completed", "total", "created_at", "updated_at", "error", "result_refs"])
 S["JobEvent"] = obj({"job_id": ID, "sequence": string(pattern="^[0-9]+$"), "at": TIME, "job": ref("Job")},
     ["job_id", "sequence", "at", "job"], description="Sequence is a string to avoid browser integer precision loss.")
@@ -224,6 +226,101 @@ S["ExportCreate"] = obj({"run_id": ID, "kind": enum("report", "records", "factor
     description="Server rejects unsupported kind/format combinations and unauthorized raw-data exports.")
 S["EmptyCommand"] = obj({})
 
+S["ScreenInputBinding"] = {"oneOf": [
+    obj({"binding_id": ID, "kind": enum("field"), "dataset": TEXT, "field": TEXT},
+        ["binding_id", "kind", "dataset", "field"]),
+    obj({"binding_id": ID, "kind": enum("factor"), "factor_ref": ref("VersionRef"), "params": PARAMS},
+        ["binding_id", "kind", "factor_ref", "params"]),
+], "description": "Distinct binding_id values are required for parameterized factors; the same factor with different params is a different binding."}
+S["ScreenInput"] = obj({"binding_id": ID}, ["binding_id"])
+S["ScreenCondition"] = {"oneOf": [
+    obj({"node_id": ID, "kind": enum("all"), "children": array(ref("ScreenCondition"), minItems=1)},
+        ["node_id", "kind", "children"]),
+    obj({"node_id": ID, "kind": enum("any"), "children": array(ref("ScreenCondition"), minItems=1)},
+        ["node_id", "kind", "children"]),
+    obj({"node_id": ID, "kind": enum("not"), "child": ref("ScreenCondition")}, ["node_id", "kind", "child"]),
+    obj({"node_id": ID, "kind": enum("compare"), "input": ref("ScreenInput"),
+         "operator": enum("eq", "ne", "gt", "gte", "lt", "lte"), "value": ref("Value")},
+        ["node_id", "kind", "input", "operator", "value"]),
+    obj({"node_id": ID, "kind": enum("range"), "input": ref("ScreenInput"), "lower": nullable(ref("Value")),
+         "upper": nullable(ref("Value")), "lower_inclusive": BOOL, "upper_inclusive": BOOL},
+        ["node_id", "kind", "input", "lower", "upper", "lower_inclusive", "upper_inclusive"],
+        description="At least one bound must be present; lower must not exceed upper."),
+    obj({"node_id": ID, "kind": enum("set"), "input": ref("ScreenInput"), "in": array(ref("Value"), minItems=1)},
+        ["node_id", "kind", "input", "in"]),
+    obj({"node_id": ID, "kind": enum("set"), "input": ref("ScreenInput"), "not_in": array(ref("Value"), minItems=1)},
+        ["node_id", "kind", "input", "not_in"]),
+    obj({"node_id": ID, "kind": enum("missing"), "input": ref("ScreenInput"), "is_missing": BOOL},
+        ["node_id", "kind", "input", "is_missing"]),
+    obj({"node_id": ID, "kind": enum("missing"), "input": ref("ScreenInput"), "is_present": BOOL},
+        ["node_id", "kind", "input", "is_present"]),
+], "description": "Typed condition tree; node_id is unique within a screener version and locates per-condition explanations and issues. Three-valued: NOT unknown = unknown, AND is false-dominant, OR is true-dominant; only a true root enters ranking. See docs/stock-screening-design.md."}
+S["ScreenRankComponent"] = obj({"input": ref("ScreenInput"), "direction": enum("asc", "desc")}, ["input", "direction"])
+S["ScreenScoreComponent"] = obj({"input": ref("ScreenInput"), "weight": ref("Decimal"),
+    "direction": enum("larger_is_better", "smaller_is_better")},
+    ["input", "weight", "direction"],
+    description="Weights are non-negative, submitted normalized, sum to 1 and are never re-distributed when a component is missing.")
+S["ScreenRanking"] = {"oneOf": [
+    obj({"mode": enum("sort"), "fields": array(ref("ScreenRankComponent"), minItems=1)}, ["mode", "fields"]),
+    obj({"mode": enum("score"), "components": array(ref("ScreenScoreComponent"), minItems=1)}, ["mode", "components"]),
+], "description": "Mutually exclusive ranking modes. instrument_id ascending is always appended as the stable tie-breaker; instruments missing ranking values never rank, without zero-filling."}
+S["ScreenSelection"] = {"oneOf": [
+    obj({"mode": enum("all")}, ["mode"]),
+    obj({"mode": enum("top_n"), "n": {"type": "integer", "minimum": 1}}, ["mode", "n"]),
+], "description": "Fewer than N qualified instruments returns all of them; unqualified instruments are never padded in."}
+S["ScreenerCreate"] = obj({"name": TEXT, "description": TEXT,
+    "input_bindings": array(ref("ScreenInputBinding"), minItems=1), "condition_tree": ref("ScreenCondition"),
+    "ranking": ref("ScreenRanking"), "selection": ref("ScreenSelection"),
+    "display_columns": array(ID), "parent_id": ID},
+    ["name", "input_bindings", "condition_tree", "ranking", "selection"])
+S["Screener"] = obj({**S["ScreenerCreate"]["properties"], "id": ID, "version": ID,
+                     "rule_schema_version": TEXT, "created_at": TIME},
+                    ["id", "version", *S["ScreenerCreate"]["required"], "rule_schema_version", "created_at"])
+S["ScreenRunCreate"] = obj({"screener_ref": ref("VersionRef"), "snapshot_id": ID, "universe_ref": ref("VersionRef"),
+    "as_of": TIME, "decision_timezone": TEXT, "strict_pit": BOOL,
+    "required_value_policy": enum("exclude_instrument", "fail_run"), "source_run_id": ID},
+    ["screener_ref", "snapshot_id", "universe_ref", "as_of", "decision_timezone", "strict_pit", "required_value_policy"],
+    description="All inputs are frozen at submission; no implicit snapshot, universe, time or policy defaults. source_run_id links a re-run to its origin.")
+S["ScreenInputCoverage"] = obj({"binding_id": ID, "available": BOOL, "reason": nullable(TEXT)},
+    ["binding_id", "available", "reason"])
+S["ScreenPreflight"] = obj({"valid": BOOL, "issues": array(ref("Issue")), "coverage": array(ref("ScreenInputCoverage")),
+    "estimated_scan_rows": nullable(INT), "estimated_rows": nullable(INT)},
+    ["valid", "issues", "coverage", "estimated_scan_rows", "estimated_rows"],
+    description="Read-only check; submitting a run re-validates and may still fail.")
+S["ScreenSummary"] = obj({"population": INT, "condition_false": INT, "condition_unknown": INT, "condition_true": INT,
+    "rank_insufficient": INT, "rankable": INT, "selected": INT, "not_selected": INT, "empty_reason": nullable(TEXT)},
+    ["population", "condition_false", "condition_unknown", "condition_true", "rank_insufficient", "rankable", "selected", "not_selected", "empty_reason"],
+    description="Stage counts are mutually exclusive and conserve: population = condition_false + condition_unknown + condition_true; condition_true = rank_insufficient + rankable; rankable = selected + not_selected.")
+S["ScreenRun"] = obj({"id": ID, "job_id": ID, "config": ref("ScreenRunCreate"), "engine_version": TEXT,
+    "scoring_policy_version": TEXT, "config_hash": TEXT, "snapshot_hash": TEXT, "created_at": TIME,
+    "summary": nullable(ref("ScreenSummary")), "artifact_ids": array(ID)},
+    ["id", "job_id", "config", "engine_version", "scoring_policy_version", "config_hash", "snapshot_hash", "created_at", "summary", "artifact_ids"],
+    description="summary and rows stay unset until the run publishes; earlier access returns 409 result_not_ready.")
+S["ScreenRow"] = obj({"instrument_id": ID, "symbol": nullable(TEXT), "name": nullable(TEXT), "selected": BOOL,
+    "rank": nullable(INT), "score": nullable(ref("Decimal")), "values": mapping(ref("Value")), "reason": TEXT,
+    "quality_flags": array(TEXT)},
+    ["instrument_id", "selected", "rank", "score", "values", "reason", "quality_flags"],
+    description="Excluded rows have a null rank and sort after selected and rankable rows; values carry display columns with missing reasons.")
+S["ScreenNodeEvaluation"] = obj({"node_id": ID, "truth": enum("true", "false", "unknown"),
+    "input": nullable(ref("ScreenInput")), "threshold": nullable(ref("Value")), "missing_reason": nullable(TEXT),
+    "data_time": nullable(TIME), "revision_id": nullable(ID), "children": array(ref("ScreenNodeEvaluation"))},
+    ["node_id", "truth", "children"],
+    description="Per-node evidence mirroring the condition tree; unknown is a distinct truth value, never coerced. Explanations reference frozen data, not current values.")
+S["ScreenScoreEvidence"] = obj({"binding_id": ID, "raw_value": nullable(ref("Value")), "percentile": nullable(NUM),
+    "weight": ref("Decimal"), "contribution": NUM}, ["binding_id", "weight", "contribution"],
+    description="Missing components keep their declared weight with no redistribution; raw_value and percentile are then null with the missing reason carried by the Value.")
+S["ScreenExplanation"] = obj({"run_id": ID, "instrument_id": ID,
+    "stage": enum("selected", "condition_false", "condition_unknown", "rank_insufficient", "not_selected"),
+    "nodes": ref("ScreenNodeEvaluation"), "score": array(ref("ScreenScoreEvidence"))},
+    ["run_id", "instrument_id", "stage", "nodes", "score"],
+    description="score is empty in sort mode. stage is the single mutually exclusive classification used by ScreenSummary.")
+S["ScreenUniverseSource"] = obj({"screen_run_id": ID, "as_of": TIME, "snapshot_hash": TEXT, "quality_limits": array(TEXT)},
+    ["screen_run_id", "as_of", "snapshot_hash", "quality_limits"])
+S["ScreenUniverseCreate"] = obj({"name": TEXT}, ["name"],
+    description="Saves all selected instruments of a successful run as a new static universe; an empty selection returns 422 empty_selection.")
+S["ScreenExportCreate"] = obj({"scope": enum("selected", "all_candidates"), "format": enum("csv", "json")},
+    ["scope", "format"])
+
 paths = {}
 
 
@@ -242,7 +339,7 @@ def operation(path, method, name, summary, result, body=None, status="200", pagi
         page_name = result + "Page"
         S.setdefault(page_name, obj({"items": array(ref(result)), "next_cursor": nullable(TEXT)}, ["items", "next_cursor"]))
         result = page_name
-    if method == "post" and path not in ("/data/query", "/backtests/preflight", "/factor-runs/preflight", "/universes/{id}/resolve"):
+    if method == "post" and path not in ("/data/query", "/backtests/preflight", "/factor-runs/preflight", "/universes/{id}/resolve", "/screen-runs/preflight"):
         params.append(param("Idempotency-Key", "header", string(minLength=8, maxLength=128), True))
     response = {"description": "Accepted; follow Location and wait for a terminal job state." if status == "202" else "Success",
                 "content": {"application/json": {"schema": ref(result)}}}
@@ -319,6 +416,28 @@ paths["/artifacts/{id}/content"]["get"]["responses"]["200"] = {
     "description": "Artifact bytes; Content-Type matches artifact.media_type and Content-Disposition is attachment.",
     "headers": {"Content-Disposition": {"schema": TEXT}, "ETag": {"schema": TEXT}},
     "content": {"application/octet-stream": {"schema": string(format="binary")}}}
+
+operation("/screeners", "get", "listScreeners", "List screener versions", "Screener", paging=True)
+operation("/screeners", "post", "createScreener", "Create an immutable screener version", "Screener", "ScreenerCreate", "201")
+operation("/screeners/{id}", "get", "getScreener", "Read a specific immutable screener version", "Screener")
+operation("/screen-runs", "post", "startScreenRun", "Start a screening run job with frozen inputs", "Job", "ScreenRunCreate", "202")
+operation("/screen-runs", "get", "listScreenRuns", "List screening runs", "ScreenRun", paging=True,
+          extra=[param("screener_id", "query", ID), param("state", "query", S["Job"]["properties"]["state"])])
+operation("/screen-runs/preflight", "post", "preflightScreenRun", "Check inputs, conditions and scale without starting a run", "ScreenPreflight", "ScreenRunCreate")
+operation("/screen-runs/{id}", "get", "getScreenRun", "Read frozen configuration, job link and published summary", "ScreenRun")
+operation("/screen-runs/{id}/rows", "get", "listScreenRows", "Read a bounded page of frozen screening results", "ScreenRow", paging=True,
+          extra=[param("state", "query", enum("selected", "excluded"))])
+paths["/screen-runs/{id}/rows"]["get"]["parameters"] = [
+    p for p in paths["/screen-runs/{id}/rows"]["get"]["parameters"] if p["name"] not in ("sort", "q")]
+paths["/screen-runs/{id}/rows"]["get"]["description"] = ("Official rank ascending with instrument_id as the stable tie-breaker; "
+    "excluded rows have a null rank and sort last. The cursor is bound to the run, its frozen result hash and the state filter.")
+S["ScreenRowPage"]["properties"]["columns"] = array(ref("Field"))
+S["ScreenRowPage"]["required"].append("columns")
+operation("/screen-runs/{id}/explanations/{instrument_id}", "get", "getScreenExplanation",
+          "Read per-condition and scoring evidence for one instrument", "ScreenExplanation",
+          extra=[param("instrument_id", "path", ID, True)])
+operation("/screen-runs/{id}/universe", "post", "saveScreenUniverse", "Save all selected instruments as a new static universe", "Universe", "ScreenUniverseCreate", "201")
+operation("/screen-runs/{id}/exports", "post", "startScreenExport", "Start an export job for the frozen selection", "Job", "ScreenExportCreate", "202")
 
 spec = {"openapi": "3.1.0", "info": {"title": "Strategy Research API", "version": "0.1.0",
     "description": "Proposed contract, no running server. Go backend; immutable versions, PIT data views and durable jobs. See docs/interfaces.md for semantic invariants. Generated by build_openapi.py."},

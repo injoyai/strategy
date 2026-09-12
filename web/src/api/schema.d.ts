@@ -780,6 +780,164 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/screeners": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List screener versions */
+        get: operations["listScreeners"];
+        put?: never;
+        /** Create an immutable screener version */
+        post: operations["createScreener"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/screeners/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read a specific immutable screener version */
+        get: operations["getScreener"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/screen-runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List screening runs */
+        get: operations["listScreenRuns"];
+        put?: never;
+        /** Start a screening run job with frozen inputs */
+        post: operations["startScreenRun"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/screen-runs/preflight": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Check inputs, conditions and scale without starting a run */
+        post: operations["preflightScreenRun"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/screen-runs/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read frozen configuration, job link and published summary */
+        get: operations["getScreenRun"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/screen-runs/{id}/rows": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read a bounded page of frozen screening results
+         * @description Official rank ascending with instrument_id as the stable tie-breaker; excluded rows have a null rank and sort last. The cursor is bound to the run, its frozen result hash and the state filter.
+         */
+        get: operations["listScreenRows"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/screen-runs/{id}/explanations/{instrument_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read per-condition and scoring evidence for one instrument */
+        get: operations["getScreenExplanation"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/screen-runs/{id}/universe": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Save all selected instruments as a new static universe */
+        post: operations["saveScreenUniverse"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/screen-runs/{id}/exports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Start an export job for the frozen selection */
+        post: operations["startScreenExport"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1034,6 +1192,8 @@ export interface components {
             parent_id?: string;
             id: string;
             version: string;
+            /** @description Present only when the universe was saved from a successful screening run. */
+            source?: components["schemas"]["ScreenUniverseSource"] | null;
         };
         UniverseResolve: {
             snapshot_id: string;
@@ -1226,7 +1386,7 @@ export interface components {
             error: components["schemas"]["Error"] | null;
             result_refs: {
                 /** @enum {string} */
-                kind: "batch" | "snapshot" | "import" | "factor_run" | "backtest" | "artifact";
+                kind: "batch" | "snapshot" | "import" | "factor_run" | "backtest" | "screen_run" | "artifact";
                 id: string;
             }[];
         };
@@ -1372,6 +1532,252 @@ export interface components {
             format: "json" | "csv" | "parquet" | "html" | "zip";
         };
         EmptyCommand: Record<string, never>;
+        /** @description Distinct binding_id values are required for parameterized factors; the same factor with different params is a different binding. */
+        ScreenInputBinding: {
+            binding_id: string;
+            /** @enum {string} */
+            kind: "field";
+            dataset: string;
+            field: string;
+        } | {
+            binding_id: string;
+            /** @enum {string} */
+            kind: "factor";
+            factor_ref: components["schemas"]["VersionRef"];
+            /** @description Validated using the referenced registered parameter schema; not arbitrary executable code. */
+            params: {
+                [key: string]: unknown;
+            };
+        };
+        ScreenInput: {
+            binding_id: string;
+        };
+        /** @description Typed condition tree; node_id is unique within a screener version and locates per-condition explanations and issues. Three-valued: NOT unknown = unknown, AND is false-dominant, OR is true-dominant; only a true root enters ranking. See docs/stock-screening-design.md. */
+        ScreenCondition: {
+            node_id: string;
+            /** @enum {string} */
+            kind: "all";
+            children: components["schemas"]["ScreenCondition"][];
+        } | {
+            node_id: string;
+            /** @enum {string} */
+            kind: "any";
+            children: components["schemas"]["ScreenCondition"][];
+        } | {
+            node_id: string;
+            /** @enum {string} */
+            kind: "not";
+            child: components["schemas"]["ScreenCondition"];
+        } | {
+            node_id: string;
+            /** @enum {string} */
+            kind: "compare";
+            input: components["schemas"]["ScreenInput"];
+            /** @enum {string} */
+            operator: "eq" | "ne" | "gt" | "gte" | "lt" | "lte";
+            value: components["schemas"]["Value"];
+        } | {
+            node_id: string;
+            /** @enum {string} */
+            kind: "range";
+            input: components["schemas"]["ScreenInput"];
+            lower: components["schemas"]["Value"] | null;
+            upper: components["schemas"]["Value"] | null;
+            lower_inclusive: boolean;
+            upper_inclusive: boolean;
+        } | {
+            node_id: string;
+            /** @enum {string} */
+            kind: "set";
+            input: components["schemas"]["ScreenInput"];
+            in: components["schemas"]["Value"][];
+        } | {
+            node_id: string;
+            /** @enum {string} */
+            kind: "set";
+            input: components["schemas"]["ScreenInput"];
+            not_in: components["schemas"]["Value"][];
+        } | {
+            node_id: string;
+            /** @enum {string} */
+            kind: "missing";
+            input: components["schemas"]["ScreenInput"];
+            is_missing: boolean;
+        } | {
+            node_id: string;
+            /** @enum {string} */
+            kind: "missing";
+            input: components["schemas"]["ScreenInput"];
+            is_present: boolean;
+        };
+        ScreenRankComponent: {
+            input: components["schemas"]["ScreenInput"];
+            /** @enum {string} */
+            direction: "asc" | "desc";
+        };
+        /** @description Weights are non-negative, submitted normalized, sum to 1 and are never re-distributed when a component is missing. */
+        ScreenScoreComponent: {
+            input: components["schemas"]["ScreenInput"];
+            weight: components["schemas"]["Decimal"];
+            /** @enum {string} */
+            direction: "larger_is_better" | "smaller_is_better";
+        };
+        /** @description Mutually exclusive ranking modes. instrument_id ascending is always appended as the stable tie-breaker; instruments missing ranking values never rank, without zero-filling. */
+        ScreenRanking: {
+            /** @enum {string} */
+            mode: "sort";
+            fields: components["schemas"]["ScreenRankComponent"][];
+        } | {
+            /** @enum {string} */
+            mode: "score";
+            components: components["schemas"]["ScreenScoreComponent"][];
+        };
+        /** @description Fewer than N qualified instruments returns all of them; unqualified instruments are never padded in. */
+        ScreenSelection: {
+            /** @enum {string} */
+            mode: "all";
+        } | {
+            /** @enum {string} */
+            mode: "top_n";
+            n: number;
+        };
+        ScreenerCreate: {
+            name: string;
+            description?: string;
+            input_bindings: components["schemas"]["ScreenInputBinding"][];
+            condition_tree: components["schemas"]["ScreenCondition"];
+            ranking: components["schemas"]["ScreenRanking"];
+            selection: components["schemas"]["ScreenSelection"];
+            display_columns?: string[];
+            parent_id?: string;
+        };
+        Screener: {
+            name: string;
+            description?: string;
+            input_bindings: components["schemas"]["ScreenInputBinding"][];
+            condition_tree: components["schemas"]["ScreenCondition"];
+            ranking: components["schemas"]["ScreenRanking"];
+            selection: components["schemas"]["ScreenSelection"];
+            display_columns?: string[];
+            parent_id?: string;
+            id: string;
+            version: string;
+            rule_schema_version: string;
+            /** Format: date-time */
+            created_at: string;
+        };
+        /** @description All inputs are frozen at submission; no implicit snapshot, universe, time or policy defaults. source_run_id links a re-run to its origin. */
+        ScreenRunCreate: {
+            screener_ref: components["schemas"]["VersionRef"];
+            snapshot_id: string;
+            universe_ref: components["schemas"]["VersionRef"];
+            /** Format: date-time */
+            as_of: string;
+            decision_timezone: string;
+            strict_pit: boolean;
+            /** @enum {string} */
+            required_value_policy: "exclude_instrument" | "fail_run";
+            source_run_id?: string;
+        };
+        ScreenInputCoverage: {
+            binding_id: string;
+            available: boolean;
+            reason: string | null;
+        };
+        /** @description Read-only check; submitting a run re-validates and may still fail. */
+        ScreenPreflight: {
+            valid: boolean;
+            issues: components["schemas"]["Issue"][];
+            coverage: components["schemas"]["ScreenInputCoverage"][];
+            estimated_scan_rows: number | null;
+            estimated_rows: number | null;
+        };
+        /** @description Stage counts are mutually exclusive and conserve: population = condition_false + condition_unknown + condition_true; condition_true = rank_insufficient + rankable; rankable = selected + not_selected. */
+        ScreenSummary: {
+            population: number;
+            condition_false: number;
+            condition_unknown: number;
+            condition_true: number;
+            rank_insufficient: number;
+            rankable: number;
+            selected: number;
+            not_selected: number;
+            empty_reason: string | null;
+        };
+        /** @description summary and rows stay unset until the run publishes; earlier access returns 409 result_not_ready. */
+        ScreenRun: {
+            id: string;
+            job_id: string;
+            config: components["schemas"]["ScreenRunCreate"];
+            engine_version: string;
+            scoring_policy_version: string;
+            config_hash: string;
+            snapshot_hash: string;
+            /** Format: date-time */
+            created_at: string;
+            summary: components["schemas"]["ScreenSummary"] | null;
+            artifact_ids: string[];
+        };
+        /** @description Excluded rows have a null rank and sort after selected and rankable rows; values carry display columns with missing reasons. */
+        ScreenRow: {
+            instrument_id: string;
+            symbol?: string | null;
+            name?: string | null;
+            selected: boolean;
+            rank: number | null;
+            score: components["schemas"]["Decimal"] | null;
+            values: {
+                [key: string]: components["schemas"]["Value"];
+            };
+            reason: string;
+            quality_flags: string[];
+        };
+        /** @description Per-node evidence mirroring the condition tree; unknown is a distinct truth value, never coerced. Explanations reference frozen data, not current values. */
+        ScreenNodeEvaluation: {
+            node_id: string;
+            /** @enum {string} */
+            truth: "true" | "false" | "unknown";
+            input?: components["schemas"]["ScreenInput"] | null;
+            threshold?: components["schemas"]["Value"] | null;
+            missing_reason?: string | null;
+            data_time?: string | null;
+            revision_id?: string | null;
+            children: components["schemas"]["ScreenNodeEvaluation"][];
+        };
+        /** @description Missing components keep their declared weight with no redistribution; raw_value and percentile are then null with the missing reason carried by the Value. */
+        ScreenScoreEvidence: {
+            binding_id: string;
+            raw_value?: components["schemas"]["Value"] | null;
+            percentile?: number | null;
+            weight: components["schemas"]["Decimal"];
+            contribution: number;
+        };
+        /** @description score is empty in sort mode. stage is the single mutually exclusive classification used by ScreenSummary. */
+        ScreenExplanation: {
+            run_id: string;
+            instrument_id: string;
+            /** @enum {string} */
+            stage: "selected" | "condition_false" | "condition_unknown" | "rank_insufficient" | "not_selected";
+            nodes: components["schemas"]["ScreenNodeEvaluation"];
+            score: components["schemas"]["ScreenScoreEvidence"][];
+        };
+        ScreenUniverseSource: {
+            screen_run_id: string;
+            /** Format: date-time */
+            as_of: string;
+            snapshot_hash: string;
+            quality_limits: string[];
+        };
+        /** @description Saves all selected instruments of a successful run as a new static universe; an empty selection returns 422 empty_selection. */
+        ScreenUniverseCreate: {
+            name: string;
+        };
+        ScreenExportCreate: {
+            /** @enum {string} */
+            scope: "selected" | "all_candidates";
+            /** @enum {string} */
+            format: "csv" | "json";
+        };
         ProviderPage: {
             items: components["schemas"]["Provider"][];
             next_cursor: string | null;
@@ -1432,6 +1838,19 @@ export interface components {
             items: components["schemas"]["Record"][];
             next_cursor: string | null;
             record_schema: components["schemas"]["Field"][];
+        };
+        ScreenerPage: {
+            items: components["schemas"]["Screener"][];
+            next_cursor: string | null;
+        };
+        ScreenRunPage: {
+            items: components["schemas"]["ScreenRun"][];
+            next_cursor: string | null;
+        };
+        ScreenRowPage: {
+            items: components["schemas"]["ScreenRow"][];
+            next_cursor: string | null;
+            columns: components["schemas"]["Field"][];
         };
     };
     responses: never;
@@ -6671,6 +7090,1178 @@ export interface operations {
                 };
                 content: {
                     "application/octet-stream": string;
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Conflict or result not ready */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Semantic validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Rate limited */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listScreeners: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string;
+                q?: string;
+                sort?: "id" | "-id";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScreenerPage"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Conflict or result not ready */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Semantic validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Rate limited */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    createScreener: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScreenerCreate"];
+            };
+        };
+        responses: {
+            /** @description Success */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Screener"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Conflict or result not ready */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Semantic validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Rate limited */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getScreener: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Screener"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Conflict or result not ready */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Semantic validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Rate limited */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listScreenRuns: {
+        parameters: {
+            query?: {
+                screener_id?: string;
+                state?: "queued" | "running" | "cancel_requested" | "succeeded" | "failed" | "cancelled";
+                limit?: number;
+                cursor?: string;
+                q?: string;
+                sort?: "id" | "-id";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScreenRunPage"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Conflict or result not ready */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Semantic validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Rate limited */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    startScreenRun: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScreenRunCreate"];
+            };
+        };
+        responses: {
+            /** @description Accepted; follow Location and wait for a terminal job state. */
+            202: {
+                headers: {
+                    /** @description Job resource URL */
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Job"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Conflict or result not ready */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Semantic validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Rate limited */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    preflightScreenRun: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScreenRunCreate"];
+            };
+        };
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScreenPreflight"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Conflict or result not ready */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Semantic validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Rate limited */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getScreenRun: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScreenRun"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Conflict or result not ready */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Semantic validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Rate limited */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listScreenRows: {
+        parameters: {
+            query?: {
+                state?: "selected" | "excluded";
+                limit?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScreenRowPage"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Conflict or result not ready */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Semantic validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Rate limited */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getScreenExplanation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                instrument_id: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScreenExplanation"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Conflict or result not ready */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Semantic validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Rate limited */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    saveScreenUniverse: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScreenUniverseCreate"];
+            };
+        };
+        responses: {
+            /** @description Success */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Universe"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Conflict or result not ready */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Semantic validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Rate limited */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    startScreenExport: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScreenExportCreate"];
+            };
+        };
+        responses: {
+            /** @description Accepted; follow Location and wait for a terminal job state. */
+            202: {
+                headers: {
+                    /** @description Job resource URL */
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Job"];
                 };
             };
             /** @description Invalid request */

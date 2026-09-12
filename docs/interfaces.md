@@ -97,7 +97,7 @@ OpenAPI 默认 Bearer 身份认证。个人本地无认证模式作为显式部�
 | 429 | 本地限流或上游配额暂不可用，可附 Retry-After |
 | 500 / 503 | 内部故障 / 服务临时不可用；不返回供应商凭据或堆栈 |
 
-典型业务码：`unsupported_capability`、`missing_dataset`、`insufficient_history`、`pit_unverified`、`invalid_parameter`、`unknown_version`、`market_rules_required`、`result_not_ready`、`pagination.cursor_expired`、`idempotency.conflict`、`idempotency.key_expired`、`cancel_not_allowed`。
+典型业务码：`unsupported_capability`、`missing_dataset`、`insufficient_history`、`pit_unverified`、`invalid_parameter`、`unknown_version`、`market_rules_required`、`result_not_ready`、`pagination.cursor_expired`、`idempotency.conflict`、`idempotency.key_expired`、`cancel_not_allowed`、`empty_selection`。
 
 ## 5. API 功能分组
 
@@ -119,6 +119,10 @@ OpenAPI 默认 Bearer 身份认证。个人本地无认证模式作为显式部�
 | 因子 | GET `/factors`、GET `/factors/{id}`、POST `/factors` | 注册表达式版本；Go 因子由部署注册，列表统一展示 |
 | 因子计算与分析 | POST `/factor-runs`、GET `/factor-runs/{id}` | 批量计算与按指定标签窗口分析，结果由 artifact 获取 |
 | 因子预检与分析结果 | POST `/factor-runs/preflight`、GET `/factor-runs/{id}/analysis` | 返回全部依赖问题或指定因子的分析与序列引用 |
+| 选股方案 | GET/POST `/screeners`、GET `/screeners/{id}` | 不可变选股规则版本：输入绑定、条件树、排序/评分与数量 |
+| 选股预检与运行 | POST `/screen-runs/preflight`、POST/GET `/screen-runs`、GET `/screen-runs/{id}` | 冻结快照、母池、as_of 与政策后预检或启动任务；返回冻结配置与守恒汇总 |
+| 选股结果与解释 | GET `/screen-runs/{id}/rows`、GET `/screen-runs/{id}/explanations/{instrument_id}` | 分页正式名单与逐条件证据；发布前 409 `result_not_ready` |
+| 选股成果 | POST `/screen-runs/{id}/universe`、POST `/screen-runs/{id}/exports` | 全部入选保存为带来源证据的静态池；按明确 scope 导出 CSV/JSON |
 | 策略模板 | GET `/strategy-templates` | 后端注册的模板、参数 schema 与所需能力 |
 | 策略版本 | GET/POST `/strategies`、GET `/strategies/{id}` | 可视化配置产生不可变版本 |
 | 模型 | GET `/models` | 已注册市场、费用、成交、时间可用性及指标口径模型与参数 schema |
@@ -131,7 +135,7 @@ OpenAPI 默认 Bearer 身份认证。个人本地无认证模式作为显式部�
 
 暂不开放实盘下单 API。后续交易接入单独版本化，其账户与订单生命周期不复用研究 Job。
 
-因子预检和回测预检成功完成检查时返回 200 `{valid, issues}`；`valid=false` 表示不能启动。真正提交运行时后端重新预检，存在阻塞问题返回 422，避免仅依赖页面校验。历史成员解析、数据查询和预检均为只读 POST，不要求幂等键。
+因子预检、回测预检和选股预检成功完成检查时返回 200 `{valid, issues}`（选股预检另含输入覆盖与扫描量估计）；`valid=false` 表示不能启动。真正提交运行时后端重新预检，存在阻塞问题返回 422，避免仅依赖页面校验。历史成员解析、数据查询和各预检均为只读 POST，不要求幂等键。
 
 分析 JSON 产物使用 OpenAPI 中 `ResearchSeries` 格式，对比结果使用 `ComparisonResult`；不能把前端需要理解的结构藏在未定义任意 JSON 中。大矩阵使用带字段 schema 和单位的 Parquet/CSV，文件元信息来自 Artifact。净值接口只允许时间顺序对应的稳定分页，`sort=id/-id` 不适用于该接口。
 

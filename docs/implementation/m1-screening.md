@@ -1,6 +1,6 @@
 # M1S 选股功能实施
 
-版本：0.1，2026-09-12。状态：Proposed / Not Started。设计来源为 [选股功能设计](../stock-screening-design.md)。其中 SCREEN/SC-AC ID 尚未进入主需求和 OpenAPI；本文件定义接入步骤，不表示端点、页面或功能已经存在。
+版本：0.2，2026-09-12。状态：S1-01 契约已落地，S1-02 起未开始。设计来源为 [选股功能设计](../stock-screening-design.md)。SCREEN-01..08 与 SC-AC-01..12 已进入主需求与 OpenAPI；端点、Go/TS handler 与页面尚未实现，本文件定义接入步骤，不表示功能已经存在。
 
 ## 1. 目标与非目标
 

@@ -44,9 +44,9 @@
 | UI-01 | M0-07/08, M1-09, M2-10 | 跨页面浏览器闭环与所有统一状态 | M0-M2 |
 | INT-01 | M0-03/06, M1-07, M2-01/02/09 | Provider/Factor/Strategy/Model/Store/Exporter 契约套件 | M0-M2 |
 
-### 2.1 Proposed 选股设计追踪
+### 2.1 选股设计追踪
 
-这些 ID 来自 [选股设计](../stock-screening-design.md)，尚未进入主需求；正式编码前先通过 `GATE-SCREEN-CONTRACT`。
+这些 ID 已按 S1-01 进入主需求与 OpenAPI；对应实现通过 `GATE-SCREEN-CONTRACT` 后才可声称完成。
 
 | 设计 ID | 主工作包 | 必须有的自动化/证据 |
 | --- | --- | --- |
