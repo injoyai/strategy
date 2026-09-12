@@ -12,6 +12,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -22,9 +23,15 @@ import (
 
 	"github.com/injoyai/strategy/internal/artifacts"
 	"github.com/injoyai/strategy/internal/config"
+	"github.com/injoyai/strategy/internal/data"
+	"github.com/injoyai/strategy/internal/domain"
+	"github.com/injoyai/strategy/internal/jobs"
 	"github.com/injoyai/strategy/internal/logging"
+	"github.com/injoyai/strategy/internal/pipeline"
+	"github.com/injoyai/strategy/internal/ports"
 	"github.com/injoyai/strategy/internal/server"
 	"github.com/injoyai/strategy/internal/store"
+	"github.com/injoyai/strategy/internal/synthetic"
 	"github.com/injoyai/strategy/internal/worker"
 )
 
@@ -77,25 +84,61 @@ func run() error {
 		return fmt.Errorf("migrate metadata store: %w", err)
 	}
 
-	art := artifacts.New(cfg.Data.Root)
+	art := artifacts.New(cfg.Data.Root, db)
 	if err := art.VerifyReferencedFiles(ctx, db); err != nil {
 		return fmt.Errorf("verify artifacts: %w", err)
+	}
+
+	// Job state lives on the same metadata database. Startup recovery closes
+	// jobs a dead previous process left behind (single-owner process model),
+	// so a restart never resumes half-finished work silently.
+	hub := jobs.NewHub()
+	jstore := jobs.NewStore(db, nil, hub)
+	if err := jstore.RecoverOrphans(ctx); err != nil {
+		return fmt.Errorf("recover orphaned jobs: %w", err)
+	}
+
+	dataStore := data.New(db, nil)
+	syntheticProvider, err := synthetic.Factory{}.Open(ctx, domain.ConnectionConfig{
+		Provider: domain.VersionRef{ID: synthetic.ProviderID, Version: synthetic.ProviderVersion},
+		Settings: json.RawMessage("{}"),
+	})
+	if err != nil {
+		return fmt.Errorf("open synthetic provider: %w", err)
 	}
 
 	api := server.NewAPI(server.Options{
 		Log:         log,
 		Auth:        auth,
 		Idempotency: store.NewIdempotencyStore(db),
+		Jobs:        jstore,
+		Data:        dataStore,
+		Artifacts:   art,
+		Providers: []server.ProviderRegistration{
+			{Provider: syntheticProvider, Factory: synthetic.Factory{}},
+		},
 	})
-	registerAPIRoutes(api)
+
+	handlers := &pipeline.Handlers{
+		Jobs:      jstore,
+		Data:      dataStore,
+		Artifacts: art,
+		Factories: map[domain.ID]ports.ProviderFactory{
+			synthetic.ProviderID: synthetic.Factory{},
+		},
+	}
 
 	var pool worker.Pool
 
-	// Worker loop placeholder: the persistent job loop lands in M0-05. It must
-	// observe ctx cancellation at safe points so bounded drain works.
-	pool.Go(ctx, func(taskCtx context.Context) {
-		<-taskCtx.Done()
-	})
+	// The persistent job loop claims queued/expired jobs from the store; it
+	// observes ctx cancellation at safe points so bounded drain works.
+	loop := &jobs.Loop{
+		Store:    jstore,
+		Owner:    fmt.Sprintf("researchd-%d", os.Getpid()),
+		Handlers: handlers.Map(),
+		Log:      log,
+	}
+	pool.Go(ctx, loop.Run)
 
 	srv := server.New(cfg.HTTP, server.RootMux(log, api))
 	errCh := make(chan error, 1)
@@ -128,12 +171,4 @@ func run() error {
 
 	log.Info("researchd stopped")
 	return nil
-}
-
-// registerAPIRoutes wires business endpoints onto the API. The contract shell
-// (auth, request IDs, idempotency, pagination, error mapping) is fully active
-// from M0-03; concrete handlers are registered from M0-05 onward as vertical
-// slices land. Until then the API serves /api/v1 with a contract-shaped 404.
-func registerAPIRoutes(api *server.API) {
-	_ = api
 }

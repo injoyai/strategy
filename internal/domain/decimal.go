@@ -65,6 +65,26 @@ func (d Decimal) IsZero() bool {
 	return v.IsZero()
 }
 
+// IsNegative reports whether the value is strictly less than zero. An
+// invalid Decimal reports false so quality checks fail open (no false
+// positive on a malformed stored value).
+func (d Decimal) IsNegative() bool {
+	v, err := d.value()
+	if err != nil {
+		return false
+	}
+	return v.IsNegative()
+}
+
+// IsPositive reports whether the value is strictly greater than zero.
+func (d Decimal) IsPositive() bool {
+	v, err := d.value()
+	if err != nil {
+		return false
+	}
+	return v.IsPositive()
+}
+
 // value parses a stored decimal. Values built by this package always parse;
 // the error path only guards zero values or hand-assembled strings.
 func (d Decimal) value() (decimal.Decimal, error) {

@@ -29,7 +29,7 @@ func newTestStore(t *testing.T) (*Store, *sql.DB) {
 	if err := store.Migrate(context.Background(), db, slog.Default()); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
-	return New(root), db
+	return New(root, db), db
 }
 
 func sha256hex(b []byte) string {

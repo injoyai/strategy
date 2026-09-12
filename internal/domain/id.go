@@ -38,8 +38,8 @@ var versionPattern = idPattern
 // aggregate. Immutable references never float: the reserved value "latest"
 // is rejected so lookups cannot silently fall back to a moving head.
 type VersionRef struct {
-	ID      ID
-	Version string
+	ID      ID     `json:"id"`
+	Version string `json:"version"`
 }
 
 // Validate checks both fields and rejects the reserved "latest" spelling

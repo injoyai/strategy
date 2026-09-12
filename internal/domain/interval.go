@@ -14,8 +14,8 @@ import (
 // are normalized to UTC on construction; internal comparisons never deal with
 // local time.
 type Interval struct {
-	From time.Time
-	To   time.Time
+	From time.Time `json:"from"`
+	To   time.Time `json:"to"`
 }
 
 // NewInterval builds a half-open [from, to) interval, normalizing both ends

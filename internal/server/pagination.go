@@ -86,6 +86,9 @@ func EncodeCursor(sort, lastID string, createdAt time.Time) string {
 // the handler is using now. Expired cursors fail with the dedicated
 // pagination code; malformed or foreign cursors fail as invalid input.
 func ParseCursor(w http.ResponseWriter, r *http.Request, encoded, sort string, now time.Time) (Cursor, bool) {
+	if encoded == "" {
+		return Cursor{Sort: sort}, true
+	}
 	raw, err := base64.RawURLEncoding.DecodeString(encoded)
 	if err != nil {
 		writeBoundaryError(w, r, domain.CodeValidationInvalid, "cursor is malformed")

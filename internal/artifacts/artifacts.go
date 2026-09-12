@@ -30,6 +30,9 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/injoyai/strategy/internal/domain"
+	"github.com/injoyai/strategy/internal/ports"
 )
 
 // layout directories, relative to the data root.
@@ -43,10 +46,110 @@ const (
 // Store manages artifact files under a service-managed data root.
 type Store struct {
 	root string
+	db   *sql.DB
 }
 
-// New returns a Store rooted at the configured data directory.
-func New(root string) *Store { return &Store{root: root} }
+// New returns a Store rooted at the configured data directory. The db handle
+// backs the metadata half of the protocol (Record/Get/Open); the file half
+// stays under root.
+func New(root string, db *sql.DB) *Store { return &Store{root: root, db: db} }
+
+// Artifact is the metadata record of one published file.
+type Artifact struct {
+	ID         string
+	Name       string
+	MediaType  string
+	Checksum   string
+	Size       int64
+	StorageKey string
+	CreatedAt  time.Time
+}
+
+// RecordInput carries the caller-supplied metadata for Record.
+type RecordInput struct {
+	Name      string
+	MediaType string
+	Workspace string
+	Placement Placement
+}
+
+// Record publishes a placement: it inserts the artifacts row in one
+// transaction and resolves to the canonical record. Content-addressed
+// storage means the same bytes always resolve to the same artifact id, so
+// re-recording an identical upload is idempotent.
+func (s *Store) Record(ctx context.Context, in RecordInput) (Artifact, error) {
+	if in.Placement.Checksum == "" || in.Placement.StorageKey == "" {
+		return Artifact{}, fmt.Errorf("artifacts: record requires an ingested placement")
+	}
+	workspace := in.Workspace
+	if workspace == "" {
+		workspace = "default"
+	}
+	id, err := ports.RandomIDGenerator{Prefix: "art"}.NewID()
+	if err != nil {
+		return Artifact{}, err
+	}
+	now := time.Now().UTC().UnixNano()
+	_, err = s.db.ExecContext(ctx, `
+INSERT INTO artifacts (id, workspace, name, media_type, size, checksum, storage_key, published_at, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT (storage_key) DO NOTHING`,
+		id, workspace, in.Name, in.MediaType, in.Placement.Size, in.Placement.Checksum,
+		in.Placement.StorageKey, now, now)
+	if err != nil {
+		return Artifact{}, fmt.Errorf("artifacts: record %s: %w", in.Placement.StorageKey, err)
+	}
+	return s.GetByStorageKey(ctx, in.Placement.StorageKey)
+}
+
+// Get returns the artifact metadata for id.
+func (s *Store) Get(ctx context.Context, id string) (Artifact, error) {
+	row := s.db.QueryRowContext(ctx, `
+SELECT id, name, media_type, size, checksum, storage_key, created_at
+FROM artifacts WHERE id = ?`, id)
+	return scanArtifact(row)
+}
+
+// GetByStorageKey returns the artifact metadata for a content-addressed key.
+func (s *Store) GetByStorageKey(ctx context.Context, key string) (Artifact, error) {
+	row := s.db.QueryRowContext(ctx, `
+SELECT id, name, media_type, size, checksum, storage_key, created_at
+FROM artifacts WHERE storage_key = ?`, key)
+	return scanArtifact(row)
+}
+
+// Open resolves id and opens its content file for streaming.
+func (s *Store) Open(ctx context.Context, id string) (Artifact, io.ReadCloser, error) {
+	art, err := s.Get(ctx, id)
+	if err != nil {
+		return Artifact{}, nil, err
+	}
+	path, err := s.Path(art.StorageKey)
+	if err != nil {
+		return Artifact{}, nil, err
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return Artifact{}, nil, fmt.Errorf("artifacts: open %s: %w", art.StorageKey, err)
+	}
+	return art, f, nil
+}
+
+type rowScanner interface{ Scan(dest ...any) error }
+
+func scanArtifact(row rowScanner) (Artifact, error) {
+	var art Artifact
+	var createdNano int64
+	err := row.Scan(&art.ID, &art.Name, &art.MediaType, &art.Size, &art.Checksum, &art.StorageKey, &createdNano)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Artifact{}, domain.NewError(domain.CodeResourceNotFound, "artifact not found")
+	}
+	if err != nil {
+		return Artifact{}, fmt.Errorf("artifacts: scan artifact: %w", err)
+	}
+	art.CreatedAt = time.Unix(0, createdNano).UTC()
+	return art, nil
+}
 
 // Placement describes where Ingest parked a payload and how to reference it.
 type Placement struct {

@@ -7,7 +7,10 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/injoyai/strategy/internal/artifacts"
+	"github.com/injoyai/strategy/internal/data"
 	"github.com/injoyai/strategy/internal/domain"
+	"github.com/injoyai/strategy/internal/jobs"
 	"github.com/injoyai/strategy/internal/ports"
 )
 
@@ -23,6 +26,14 @@ type Options struct {
 	IDs          ports.IDGenerator
 	Idempotency  IdempotencyStore
 	MaxBodyBytes int64 // 0 -> defaultMaxBodyBytes
+	// Jobs, when set, mounts the /jobs contract surface on the API.
+	Jobs *jobs.Store
+
+	Data      *data.Store
+	Providers []ProviderRegistration
+
+	// Artifacts, when set, mounts the /imports and /artifacts surface.
+	Artifacts *artifacts.Store
 }
 
 // API is the contract surface served under /api/v1.
@@ -33,7 +44,14 @@ type API struct {
 	ids          ports.IDGenerator
 	idem         IdempotencyStore
 	maxBodyBytes int64
+	jobs         *jobs.Store
 	mux          *http.ServeMux
+
+	data      *data.Store
+	providers []domain.ProviderDescriptor
+	factories map[domain.ID]ports.ProviderFactory
+
+	artifacts *artifacts.Store
 }
 
 // NewAPI builds the API with defaults for omitted dependencies.
@@ -59,15 +77,31 @@ func NewAPI(opts Options) *API {
 	if maxBody <= 0 {
 		maxBody = defaultMaxBodyBytes
 	}
-	return &API{
+	providers, factories := describeProviders(opts.Providers)
+	api := &API{
 		log:          opts.Log,
 		auth:         opts.Auth,
 		clock:        opts.Clock,
 		ids:          opts.IDs,
 		idem:         opts.Idempotency,
 		maxBodyBytes: maxBody,
+		jobs:         opts.Jobs,
+		data:         opts.Data,
+		artifacts:    opts.Artifacts,
+		providers:    providers,
+		factories:    factories,
 		mux:          http.NewServeMux(),
 	}
+	if opts.Jobs != nil {
+		api.RegisterJobs()
+	}
+	if opts.Data != nil {
+		api.RegisterData()
+	}
+	if opts.Artifacts != nil {
+		api.RegisterImports()
+	}
+	return api
 }
 
 // RouteOptions carries per-route contract obligations.
@@ -98,12 +132,11 @@ func (a *API) Handle(method, pattern string, handler http.HandlerFunc, opts Rout
 // parses as the same Error schema, including routing misses.
 func (a *API) Handler() http.Handler {
 	routed := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		h, pattern := a.mux.Handler(r)
-		if pattern == "" {
+		if _, pattern := a.mux.Handler(r); pattern == "" {
 			a.writeError(w, r, domain.NewError(domain.CodeResourceNotFound, "no such resource"))
 			return
 		}
-		h.ServeHTTP(w, r)
+		a.mux.ServeHTTP(w, r)
 	})
 	return a.requestIDMiddleware(a.recoverMiddleware(a.accessLogMiddleware(a.bodyLimitMiddleware(a.authMiddleware(routed)))))
 }

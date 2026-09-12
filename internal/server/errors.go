@@ -24,9 +24,9 @@ type errorEnvelope struct {
 }
 
 // StatusForError maps a stable domain error code to exactly one HTTP status.
-// The nine statuses are fixed by the OpenAPI contract (400, 401, 403, 404,
-// 409, 422, 429, 500, 503); unknown codes fail closed to 500 so a future
-// code cannot silently escape as a success-class response.
+// The ten statuses are fixed by the OpenAPI contract (400, 401, 403, 404,
+// 409, 410, 422, 429, 500, 503); unknown codes fail closed to 500 so a
+// future code cannot silently escape as a success-class response.
 func StatusForError(code string) int {
 	switch code {
 	case domain.CodeValidationInvalid,
@@ -42,6 +42,8 @@ func StatusForError(code string) int {
 		return http.StatusForbidden
 	case domain.CodeResourceNotFound:
 		return http.StatusNotFound
+	case domain.CodeResourceGone:
+		return http.StatusGone
 	case domain.CodeResourceConflict,
 		domain.CodeResourceVersionMismatch,
 		domain.CodeIdempotencyConflict:

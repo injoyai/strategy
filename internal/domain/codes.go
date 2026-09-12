@@ -18,6 +18,7 @@ const (
 
 	// Resource addressing and concurrency.
 	CodeResourceNotFound        = "resource.not_found"
+	CodeResourceGone            = "resource.gone"
 	CodeResourceVersionMismatch = "resource.version_mismatch"
 	CodeResourceConflict        = "resource.conflict"
 
@@ -31,4 +32,15 @@ const (
 	CodeRateLimited         = "rate.limited"
 	CodeInternalError       = "internal.error"
 	CodeInternalUnavailable = "internal.unavailable"
+
+	// Data quality (M0-06). Each rule surfaces an Issue; nothing is silently
+	// fixed. Severity is rule-specific; an error-severity issue blocks
+	// snapshot publishing in strict mode.
+	CodeQualityDuplicateNaturalKey = "quality.duplicate_natural_key"
+	CodeQualityOHLCViolation       = "quality.ohlc_violation"
+	CodeQualityNegativeVolume      = "quality.negative_volume"
+	CodeQualityMissingTradingDay   = "quality.missing_trading_day"
+	CodeQualityUnknownUnit         = "quality.unknown_unit"
+	CodeQualityFutureAvailableAt   = "quality.future_available_at"
+	CodeQualitySupersededRevision  = "quality.superseded_revision"
 )

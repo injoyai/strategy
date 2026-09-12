@@ -22,7 +22,10 @@ import (
 // connectionPRAGMAs are applied per pooled connection through the driver's
 // DSN parameters, so settings survive connection recycling. journal_mode=WAL
 // is persistent anyway, but declaring it here keeps the contract in one place.
-const connectionPRAGMAs = "_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)&_pragma=synchronous(NORMAL)"
+// _txlock=immediate makes every transaction take its write lock up front, so
+// job claims (SELECT candidate, then UPDATE) serialize instead of racing on
+// the upgrade from a deferred read transaction.
+const connectionPRAGMAs = "_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)&_pragma=synchronous(NORMAL)&_txlock=immediate"
 
 // Open opens (creating if needed) the metadata database at path.
 // UNC paths are rejected: WAL relies on shared memory between connections,

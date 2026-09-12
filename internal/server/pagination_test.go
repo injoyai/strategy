@@ -126,7 +126,6 @@ func TestCursorMalformed(t *testing.T) {
 		"garbage":     "not-a-cursor!!",
 		"legacy":      base64.RawURLEncoding.EncodeToString(legacy),
 		"broken json": "eyJzb3J0Ijo",
-		"empty":       "",
 	}
 	for name, encoded := range cases {
 		rec := httptest.NewRecorder()
@@ -134,6 +133,18 @@ func TestCursorMalformed(t *testing.T) {
 		if _, ok := ParseCursor(rec, req, encoded, SortAsc, testBase); ok || rec.Code != http.StatusBadRequest {
 			t.Errorf("%s: ok=%v status=%d, want 400", name, ok, rec.Code)
 		}
+	}
+}
+
+func TestCursorEmptyIsFirstPage(t *testing.T) {
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/things", nil)
+	cursor, ok := ParseCursor(rec, req, "", SortAsc, testBase)
+	if !ok {
+		t.Fatalf("empty cursor must be the first page: status=%d", rec.Code)
+	}
+	if cursor.Sort != SortAsc || cursor.LastID != "" {
+		t.Fatalf("first-page cursor = %+v, want zero cursor with sort asc", cursor)
 	}
 }
 
