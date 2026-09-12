@@ -21,8 +21,15 @@ export interface CreateApiClientOptions {
 
 export type ApiClient = ReturnType<typeof createApiClient>;
 
+export const DEFAULT_API_BASE_URL = "/api/v1";
+
+/** Generate a new key for one user-visible write operation. */
+export function newIdempotencyKey(): string {
+  return `web_${crypto.randomUUID()}`;
+}
+
 export function createApiClient(options: CreateApiClientOptions = {}) {
-  const { baseUrl = "/api/v1", bearerToken } = options;
+  const { baseUrl = DEFAULT_API_BASE_URL, bearerToken } = options;
   const client = createClient<paths>({ baseUrl });
 
   const headers: Middleware = {
@@ -30,6 +37,9 @@ export function createApiClient(options: CreateApiClientOptions = {}) {
       request.headers.set("X-Request-ID", crypto.randomUUID());
       if (bearerToken) {
         request.headers.set("Authorization", `Bearer ${bearerToken}`);
+      }
+      if (["POST", "PUT", "PATCH", "DELETE"].includes(request.method) && !request.headers.has("Idempotency-Key")) {
+        request.headers.set("Idempotency-Key", newIdempotencyKey());
       }
       return request;
     },

@@ -1,0 +1,7 @@
+{
+  "sourceRoots": ["web/src"],
+  "ownership": {
+    "Select/Listbox": "authored",
+    "Date": "typed"
+  }
+}
