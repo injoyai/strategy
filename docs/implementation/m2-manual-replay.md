@@ -1,6 +1,6 @@
 # M2R 历史选股与手动模拟交易实施
 
-版本：0.1，2026-09-12。状态：Proposed / Not Started。设计来源为 [历史选股与手动模拟交易设计](../historical-replay-trading-design.md)。REPLAY/RP/RP-AC ID 尚未进入主需求与 OpenAPI；本文定义实施顺序，不表示会话、订单、页面、撮合或账本已经实现。
+版本：0.1，2026-09-12。状态：RP-00 契约与 RP-01 纯状态机已落地，RP-02 起未开始。设计来源为 [历史选股与手动模拟交易设计](../historical-replay-trading-design.md)。REPLAY-01..10 / RP-AC-01..14 已进入主需求与 OpenAPI；RP-01 提供无 DB/网络/时钟的会话状态机与命令并发原语，不表示订单、页面、撮合或账本已经实现。
 
 ## 1. 定位与系统边界
 
@@ -190,7 +190,7 @@ Fill、ledger entry 与大报告按共用核心/Artifact 存储，但必须能�
 | ID | 可独立交付 | 主要证据 |
 | --- | --- | --- |
 | RP-00 | 主需求/OpenAPI/错误/DTO/生成链 | operation 契约、enum 兼容、权限/幂等/revision |
-| RP-01 | Config/Session/Command/历史时钟 | 状态机、双标签竞争、服务端 decision_at |
+| RP-01 | Config/Session/Command/历史时钟 | `internal/replay`：状态机（initializing→awaiting_action→advancing→awaiting_action、closing→completed、failed）；Command{command_id, expected_revision} 乐观并发与 409 `replay.revision_conflict`（双标签竞争）；服务端 DecisionClock 决定 decision_at，命令不携带历史时间 |
 | RP-02 | 会话 DataView、K 线/字段与选股 | D+1 服务端拒绝、缓存隔离、ScreenRun 来源 |
 | RP-03 | 人工订单、reservation、共用模型接口 | 多订单资金/库存/流动性 oracle |
 | RP-04 | 单日推进、checkpoint、恢复 | 提交前后崩溃、旧 token、取消竞争、重放一致 |
