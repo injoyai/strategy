@@ -89,10 +89,13 @@ type SnapshotFilter struct {
 // so overlapping provider pages never duplicate rows inside a batch —
 // cross-request retries are the idempotency layer's concern, not Append's.
 // PublishSnapshot freezes a set of batches into an immutable,
-// content-addressed snapshot; the manifest is written atomically with the
-// snapshot row so a crash never leaves a half-published snapshot. OpenView
-// returns a DataView bound to one snapshot and one decision time; queries
-// through it never see records whose available_at exceeds the as_of.
+// content-addressed snapshot; the manifest hash is taken over the canonical
+// (order-independent) manifest, so republishing the same batch set under the
+// same policy returns the existing snapshot. The manifest is written
+// atomically with the snapshot row so a crash never leaves a half-published
+// snapshot. OpenView returns a DataView bound to one snapshot and one
+// decision time; queries through it never see records whose available_at
+// exceeds the as_of.
 type DataStore interface {
 	Append(context.Context, BatchInput) (domain.IngestReceipt, error)
 	GetBatch(context.Context, domain.ID) (domain.Batch, error)
@@ -104,9 +107,11 @@ type DataStore interface {
 }
 
 // DataView is an immutable, point-in-time read bound to a snapshot and an
-// as_of decision time. Query applies the PIT filter (available_at <= as_of)
-// and the latest-revision-within-snapshot rule; it never returns mutable
-// buffers or future-visible records.
+// as_of decision time. Query applies the PIT filters (available_at <= as_of
+// and the effective window covering as_of) and the latest-revision-within-
+// snapshot rule; a query-level replay_time further narrows visibility to
+// rows ingested at or before that moment. It never returns mutable buffers
+// or future-visible records.
 type DataView interface {
 	SnapshotID() domain.ID
 	AsOf() time.Time

@@ -1396,6 +1396,7 @@ export interface components {
             snapshot_id: string;
             /** Format: date-time */
             as_of: string;
+            replay_time?: string | null;
             dataset: string;
             frequency: string;
             instrument_ids: string[];

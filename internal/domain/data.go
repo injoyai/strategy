@@ -231,8 +231,10 @@ type SnapshotRequest struct {
 }
 
 // Snapshot is the immutable, content-addressed view over a set of batches.
-// ManifestHash is the SHA-256 of the manifest listing every batch and its
-// checksums; once published, the snapshot is never modified.
+// ManifestHash is the SHA-256 of the canonical manifest — the member batch
+// ids with their checksums plus the strict-PIT policy — so the same batch
+// set and policy always hash identically; once published, the snapshot is
+// never modified.
 type Snapshot struct {
 	ID            ID        `json:"id"`
 	Name          string    `json:"name"`
@@ -246,17 +248,20 @@ type Snapshot struct {
 // DataQuery is the point-in-time read input: bound to a snapshot and an as_of
 // decision time. InstrumentIDs and Fields are non-empty; Range is half-open;
 // Cursor is the API's own (snapshot-bound) cursor, distinct from provider
-// cursors. Limit is bounded by the data row endpoint (max 1000).
+// cursors. Limit is bounded by the data row endpoint (max 1000). ReplayTime
+// optionally narrows visibility to rows ingested at or before that wall-clock
+// moment, for replay runs that must not observe late arrivals.
 type DataQuery struct {
-	SnapshotID    ID        `json:"snapshot_id"`
-	AsOf          time.Time `json:"as_of"`
-	Dataset       string    `json:"dataset"`
-	Frequency     string    `json:"frequency"`
-	InstrumentIDs []ID      `json:"instrument_ids"`
-	Fields        []string  `json:"fields"`
-	Range         Interval  `json:"range"`
-	Cursor        string    `json:"cursor,omitempty"`
-	Limit         int       `json:"limit,omitempty"`
+	SnapshotID    ID         `json:"snapshot_id"`
+	AsOf          time.Time  `json:"as_of"`
+	ReplayTime    *time.Time `json:"replay_time,omitempty"`
+	Dataset       string     `json:"dataset"`
+	Frequency     string     `json:"frequency"`
+	InstrumentIDs []ID       `json:"instrument_ids"`
+	Fields        []string   `json:"fields"`
+	Range         Interval   `json:"range"`
+	Cursor        string     `json:"cursor,omitempty"`
+	Limit         int        `json:"limit,omitempty"`
 }
 
 // ValidateFetch checks the contract a provider's Fetch caller must uphold
@@ -304,13 +309,17 @@ func (r SnapshotRequest) Validate() error {
 }
 
 // Validate checks the data query contract: snapshot pinned, as_of non-zero,
-// non-empty instruments and fields, valid range, bounded limit.
+// replay_time non-zero when present, non-empty instruments and fields, valid
+// range, bounded limit.
 func (q DataQuery) Validate() error {
 	if q.SnapshotID == "" {
 		return NewError(CodeValidationInvalid, "data query: snapshot_id is required")
 	}
 	if q.AsOf.IsZero() {
 		return NewError(CodeValidationInvalid, "data query: as_of is required")
+	}
+	if q.ReplayTime != nil && q.ReplayTime.IsZero() {
+		return NewError(CodeValidationInvalid, "data query: replay_time must not be zero")
 	}
 	if q.Dataset == "" {
 		return NewError(CodeValidationInvalid, "data query: dataset is required")

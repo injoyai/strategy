@@ -284,6 +284,7 @@ func observationArgs(rec rowRecord, batchID, dataset, frequency string) ([]any, 
 		valuesJSON,
 		provenanceJSON,
 		rec.Provenance.AvailableAt.UnixNano(),
+		rec.Provenance.IngestedAt.UnixNano(),
 		rec.Provenance.RevisionID,
 		rec.Provenance.SupersedesRevisionID,
 		publishedAt,
@@ -316,6 +317,9 @@ func (s *Store) Append(ctx context.Context, in ports.BatchInput) (domain.IngestR
 		}
 		if o.Provenance.AvailableAt.IsZero() {
 			return domain.IngestReceipt{}, domain.NewError(domain.CodeValidationInvalid, "data: observations[%d] has zero available_at", i)
+		}
+		if o.Provenance.IngestedAt.IsZero() {
+			return domain.IngestReceipt{}, domain.NewError(domain.CodeValidationInvalid, "data: observations[%d] has zero ingested_at", i)
 		}
 		if o.Dataset != in.Dataset {
 			return domain.IngestReceipt{}, domain.NewError(domain.CodeValidationInvalid, "data: observations[%d] dataset %q does not match batch dataset %q", i, o.Dataset, in.Dataset)
@@ -377,9 +381,9 @@ func (s *Store) Append(ctx context.Context, in ports.BatchInput) (domain.IngestR
 			INSERT INTO observations (
 				workspace, batch_id, dataset, frequency, instrument_id,
 				entity_id, event_time, period_end, effective_from, effective_to,
-				values_json, provenance_json, available_at, revision_id,
-				supersedes, published_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+				values_json, provenance_json, available_at, ingested_at,
+				revision_id, supersedes, published_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 		if err != nil {
 			return fmt.Errorf("data: prepare observation insert: %w", err)
 		}
@@ -527,12 +531,25 @@ type manifestEntry struct {
 	Checksum string `json:"checksum"`
 }
 
+// canonicalManifest is the order-independent manifest a snapshot's hash is
+// taken over: batch entries sorted by id plus the publish policy. The same
+// batch set and policy always hash identically regardless of the order the
+// request listed batches in, which is what makes idempotent republish
+// possible.
+type canonicalManifest struct {
+	StrictPIT bool            `json:"strict_pit"`
+	Batches   []manifestEntry `json:"batches"`
+}
+
 // PublishSnapshot freezes the requested batches into an immutable snapshot,
 // fail-closed: any error-severity issue in any contributing batch blocks
 // publication, and strict-PIT snapshots additionally reject observations
-// whose provenance carries no published time. The snapshot row, its
-// manifest hash and the batch membership are written in one transaction, so
-// a crash never leaves a half-published snapshot.
+// whose provenance carries no published time. The manifest hash is taken
+// over the canonical (order-independent) manifest, so republishing the same
+// batch set under the same policy returns the existing snapshot instead of
+// creating a duplicate. The snapshot row, its manifest hash and the batch
+// membership are written in one transaction, so a crash never leaves a
+// half-published snapshot.
 func (s *Store) PublishSnapshot(ctx context.Context, req domain.SnapshotRequest) (domain.Snapshot, error) {
 	if err := req.Validate(); err != nil {
 		return domain.Snapshot{}, err
@@ -554,6 +571,7 @@ func (s *Store) PublishSnapshot(ctx context.Context, req domain.SnapshotRequest)
 		unpublished   int
 		manifestHash  string
 		qualityIssues []domain.Issue
+		existingID    domain.ID
 	)
 	err := s.withTx(ctx, func(tx *sql.Tx) error {
 		stmt, err := tx.PrepareContext(ctx, `SELECT checksum, issues FROM batches WHERE id = ? AND workspace = ?`)
@@ -599,11 +617,23 @@ func (s *Store) PublishSnapshot(ctx context.Context, req domain.SnapshotRequest)
 				return domain.NewError(domain.CodeResourceConflict, "snapshot %q blocked by %d observation(s) without a published time; strict PIT requires verified availability", req.Name, unpublished)
 			}
 		}
-		encodedManifest, err := marshalJSON(entries)
+		sorted := make([]manifestEntry, len(entries))
+		copy(sorted, entries)
+		sort.Slice(sorted, func(i, j int) bool { return sorted[i].BatchID < sorted[j].BatchID })
+		encodedManifest, err := marshalJSON(canonicalManifest{StrictPIT: req.StrictPIT, Batches: sorted})
 		if err != nil {
 			return err
 		}
 		manifestHash = s.sum.Checksum(encodedManifest)
+		var found string
+		scanErr := tx.QueryRowContext(ctx, `SELECT id FROM snapshots WHERE workspace = ? AND manifest_hash = ?`, workspaceDefault, manifestHash).Scan(&found)
+		if scanErr == nil {
+			existingID = domain.ID(found)
+			return nil
+		}
+		if !errors.Is(scanErr, sql.ErrNoRows) {
+			return fmt.Errorf("data: find snapshot by manifest: %w", scanErr)
+		}
 		qualityIssues = unionIssues(groups...)
 		qualityJSON, err := marshalIssues(qualityIssues)
 		if err != nil {
@@ -630,6 +660,9 @@ func (s *Store) PublishSnapshot(ctx context.Context, req domain.SnapshotRequest)
 	})
 	if err != nil {
 		return domain.Snapshot{}, err
+	}
+	if existingID != "" {
+		return s.GetSnapshot(ctx, existingID)
 	}
 	batchIDs := make([]domain.ID, len(req.BatchIDs))
 	copy(batchIDs, req.BatchIDs)

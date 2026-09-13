@@ -14,8 +14,10 @@ import (
 
 // view is an immutable point-in-time read bound to one snapshot and one
 // as_of decision time. It is handed out by Store.OpenView and never exposes
-// mutation; queries apply the PIT filter (available_at <= as_of) in SQL
-// before the latest-revision rule picks the surviving row per natural key.
+// mutation; queries apply the PIT filters in SQL (available_at <= as_of and
+// the effective window covering as_of) before the latest-revision rule picks
+// the surviving row per natural key, and a query-level replay_time further
+// narrows visibility to rows ingested at or before that moment.
 type view struct {
 	store      *Store
 	snapshotID domain.ID
@@ -30,12 +32,15 @@ func (v *view) SnapshotID() domain.ID { return v.snapshotID }
 // AsOf returns the decision time the view is pinned to.
 func (v *view) AsOf() time.Time { return v.asOf }
 
-// Query returns one page of point-in-time observations. The SQL scan orders
-// rows so the LAST row per (instrument, entity, event_time) is the latest
-// revision; rows stream into a winner map, then the ordered result is
-// windowed by the decimal offset cursor — safe here because a pinned
-// snapshot and as_of are immutable, so the winner set never changes under a
-// cursor (unlike list APIs, whose cursors live in the server layer).
+// Query returns one page of point-in-time observations. The SQL scan applies
+// the PIT filters — available_at <= as_of, the effective window covering
+// as_of (half-open: effective_from <= as_of < effective_to; windowless rows
+// always pass), and ingested_at <= replay_time when the query carries one —
+// then orders rows so the LAST row per (instrument, entity, event_time) is
+// the latest revision. Rows stream into a winner map, then the ordered
+// result is windowed by the decimal offset cursor — safe here because a
+// pinned snapshot and as_of are immutable, so the winner set never changes
+// under a cursor (unlike list APIs, whose cursors live in the server layer).
 func (v *view) Query(ctx context.Context, q domain.DataQuery) (domain.PageResult[domain.Observation], error) {
 	if err := q.Validate(); err != nil {
 		return domain.PageResult[domain.Observation]{}, err
@@ -62,13 +67,23 @@ func (v *view) Query(ctx context.Context, q domain.DataQuery) (domain.PageResult
 		  AND instrument_id IN (` + placeholders(len(q.InstrumentIDs)) + `)
 		  AND event_time >= ? AND event_time < ?
 		  AND available_at <= ?
+		  AND (effective_from IS NULL OR (effective_from <= ? AND (effective_to IS NULL OR ? < effective_to)))`
+	if q.ReplayTime != nil {
+		query += `
+		  AND ingested_at <= ?`
+	}
+	query += `
 		ORDER BY instrument_id ASC, event_time ASC, available_at ASC, revision_id ASC, id ASC`
-	args := make([]any, 0, len(q.InstrumentIDs)+8)
+	args := make([]any, 0, len(q.InstrumentIDs)+11)
 	args = append(args, q.SnapshotID, workspaceDefault, workspaceDefault, q.Dataset, q.Frequency)
 	for _, id := range q.InstrumentIDs {
 		args = append(args, id.String())
 	}
 	args = append(args, q.Range.From.UTC().UnixNano(), q.Range.To.UTC().UnixNano(), v.asOf.UnixNano())
+	args = append(args, v.asOf.UnixNano(), v.asOf.UnixNano())
+	if q.ReplayTime != nil {
+		args = append(args, q.ReplayTime.UTC().UnixNano())
+	}
 
 	rs, err := v.store.db.QueryContext(ctx, query, args...)
 	if err != nil {

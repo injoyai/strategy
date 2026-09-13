@@ -11808,6 +11808,17 @@
             "type": "string",
             "format": "date-time"
           },
+          "replay_time": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "dataset": {
             "type": "string"
           },

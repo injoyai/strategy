@@ -106,7 +106,7 @@ S["Observation"] = obj({"instrument_id": nullable(ID), "entity_id": nullable(ID)
     "event_time": TIME, "period_end": nullable(string(format="date")), "effective": nullable(ref("Range")),
     "values": mapping(ref("Value")), "provenance": ref("Provenance")},
     ["instrument_id", "entity_id", "dataset", "event_time", "values", "provenance"])
-S["DataQuery"] = obj({"snapshot_id": ID, "as_of": TIME, "dataset": TEXT, "frequency": TEXT,
+S["DataQuery"] = obj({"snapshot_id": ID, "as_of": TIME, "replay_time": nullable(TIME), "dataset": TEXT, "frequency": TEXT,
     "instrument_ids": array(ID, minItems=1), "fields": array(TEXT, minItems=1), "range": ref("Range"),
     "cursor": TEXT, "limit": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 200}},
     ["snapshot_id", "as_of", "dataset", "frequency", "instrument_ids", "fields", "range"])

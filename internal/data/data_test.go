@@ -141,6 +141,12 @@ func TestAppendValidation(t *testing.T) {
 		_, err := s.Append(ctx, ports.BatchInput{JobID: "job-1", Dataset: "bar", Frequency: "daily", Observations: []domain.Observation{obs}})
 		assertErr(t, err, domain.CodeValidationInvalid, "data: observations[0] has zero available_at")
 	})
+	t.Run("zero ingested at", func(t *testing.T) {
+		obs := barRow("INST_A", "2026-01-05", "10.40", nil)
+		obs.Provenance.IngestedAt = time.Time{}
+		_, err := s.Append(ctx, ports.BatchInput{JobID: "job-1", Dataset: "bar", Frequency: "daily", Observations: []domain.Observation{obs}})
+		assertErr(t, err, domain.CodeValidationInvalid, "data: observations[0] has zero ingested_at")
+	})
 	t.Run("dataset mismatch", func(t *testing.T) {
 		obs := barRow("INST_A", "2026-01-05", "10.40", nil)
 		obs.Dataset = "instrument"
@@ -429,6 +435,62 @@ func TestPublishSnapshotValidation(t *testing.T) {
 	assertErr(t, err, domain.CodeResourceNotFound, "snapshot: batch batch_missing not found")
 }
 
+func TestPublishSnapshotIdempotent(t *testing.T) {
+	s, _ := newTestStore(t)
+	ctx := context.Background()
+	b1 := appendBatch(t, s, "job-1", nil, barRow("INST_A", "2026-01-05", "10.40", timePtr(mustTime("2026-01-05T15:35:00Z"))))
+	b2 := appendBatch(t, s, "job-1", nil, barRow("INST_B", "2026-01-05", "20.40", timePtr(mustTime("2026-01-05T15:35:00Z"))))
+
+	first, err := s.PublishSnapshot(ctx, domain.SnapshotRequest{Name: "snap-canonical", BatchIDs: []domain.ID{b1.BatchID, b2.BatchID}})
+	if err != nil {
+		t.Fatalf("publish first: %v", err)
+	}
+
+	again, err := s.PublishSnapshot(ctx, domain.SnapshotRequest{Name: "snap-canonical", BatchIDs: []domain.ID{b1.BatchID, b2.BatchID}})
+	if err != nil {
+		t.Fatalf("publish again: %v", err)
+	}
+	if again.ID != first.ID {
+		t.Fatalf("repeat publish returned %s, want %s", again.ID, first.ID)
+	}
+	if !again.CreatedAt.Equal(first.CreatedAt) {
+		t.Fatalf("repeat publish created_at = %v, want %v", again.CreatedAt, first.CreatedAt)
+	}
+
+	reordered, err := s.PublishSnapshot(ctx, domain.SnapshotRequest{Name: "snap-reordered", BatchIDs: []domain.ID{b2.BatchID, b1.BatchID}})
+	if err != nil {
+		t.Fatalf("publish reordered: %v", err)
+	}
+	if reordered.ID != first.ID {
+		t.Fatalf("reordered request returned %s, want %s", reordered.ID, first.ID)
+	}
+	if reordered.Name != "snap-canonical" {
+		t.Fatalf("reordered request name = %q, want the stored name", reordered.Name)
+	}
+	if len(reordered.BatchIDs) != 2 || reordered.BatchIDs[0] != b1.BatchID || reordered.BatchIDs[1] != b2.BatchID {
+		t.Fatalf("reordered request batch ids = %v, want first-publish order [%s %s]", reordered.BatchIDs, b1.BatchID, b2.BatchID)
+	}
+
+	strict, err := s.PublishSnapshot(ctx, domain.SnapshotRequest{Name: "snap-strict-variant", BatchIDs: []domain.ID{b1.BatchID, b2.BatchID}, StrictPIT: true})
+	if err != nil {
+		t.Fatalf("publish strict variant: %v", err)
+	}
+	if strict.ID == first.ID {
+		t.Fatal("flipping strict_pit must produce a distinct snapshot")
+	}
+	if strict.ManifestHash == first.ManifestHash {
+		t.Fatal("strict_pit must participate in the manifest hash")
+	}
+
+	listed, err := s.ListSnapshots(ctx, ports.SnapshotFilter{})
+	if err != nil {
+		t.Fatalf("list snapshots: %v", err)
+	}
+	if len(listed.Items) != 2 {
+		t.Fatalf("listed snapshots = %d, want 2", len(listed.Items))
+	}
+}
+
 func TestOpenViewPITWinner(t *testing.T) {
 	s, _ := newTestStore(t)
 	ctx := context.Background()
@@ -554,6 +616,270 @@ func TestOpenViewQueryGuards(t *testing.T) {
 	bad.Cursor = "x"
 	_, err = view.Query(ctx, bad)
 	assertErr(t, err, domain.CodeValidationInvalid, "data query: invalid cursor")
+}
+
+func TestOpenViewEffectiveWindow(t *testing.T) {
+	s, _ := newTestStore(t)
+	ctx := context.Background()
+	windowed := barRowAt("INST_A", "2026-01-05", "10.40", "rev-001", mustTime("2026-01-04T15:30:00Z"), nil)
+	windowed.Effective = &domain.Interval{From: mustTime("2026-01-06T00:00:00Z"), To: mustTime("2026-01-08T00:00:00Z")}
+	windowless := barRowAt("INST_B", "2026-01-05", "20.40", "rev-001", mustTime("2026-01-04T15:30:00Z"), nil)
+	batch := appendBatch(t, s, "job-1", nil, windowed, windowless)
+	snap, err := s.PublishSnapshot(ctx, domain.SnapshotRequest{Name: "snap-effective", BatchIDs: []domain.ID{batch.BatchID}})
+	if err != nil {
+		t.Fatalf("publish: %v", err)
+	}
+
+	base := domain.DataQuery{
+		Dataset:       "bar",
+		Frequency:     "daily",
+		InstrumentIDs: []domain.ID{"INST_A", "INST_B"},
+		Fields:        []string{"close"},
+		Range:         domain.Interval{From: mustTime("2026-01-01T00:00:00Z"), To: mustTime("2026-02-01T00:00:00Z")},
+	}
+	queryAt := func(t *testing.T, asOf time.Time) domain.PageResult[domain.Observation] {
+		t.Helper()
+		v, err := s.OpenView(ctx, snap.ID, asOf)
+		if err != nil {
+			t.Fatalf("open view at %v: %v", asOf, err)
+		}
+		q := base
+		q.SnapshotID = snap.ID
+		q.AsOf = asOf
+		page, err := v.Query(ctx, q)
+		if err != nil {
+			t.Fatalf("query at %v: %v", asOf, err)
+		}
+		return page
+	}
+
+	before := queryAt(t, mustTime("2026-01-05T00:00:00Z"))
+	if len(before.Items) != 1 || before.Items[0].Values["close"].Encoded != "20.40" {
+		t.Fatalf("before the window items = %#v, want only the windowless row", before.Items)
+	}
+	start := queryAt(t, mustTime("2026-01-06T00:00:00Z"))
+	if len(start.Items) != 2 || start.Items[0].Values["close"].Encoded != "10.40" {
+		t.Fatalf("at effective_from items = %#v, want the windowed row back", start.Items)
+	}
+	if start.Items[0].Effective == nil || !start.Items[0].Effective.From.Equal(mustTime("2026-01-06T00:00:00Z")) || !start.Items[0].Effective.To.Equal(mustTime("2026-01-08T00:00:00Z")) {
+		t.Fatalf("effective interval = %#v, want [2026-01-06, 2026-01-08)", start.Items[0].Effective)
+	}
+	inside := queryAt(t, mustTime("2026-01-07T23:59:59.999999999Z"))
+	if len(inside.Items) != 2 {
+		t.Fatalf("just before effective_to items = %d, want 2", len(inside.Items))
+	}
+	after := queryAt(t, mustTime("2026-01-08T00:00:00Z"))
+	if len(after.Items) != 1 || after.Items[0].InstrumentID.String() != "INST_B" {
+		t.Fatalf("at effective_to items = %#v, want only the windowless row (half-open exit)", after.Items)
+	}
+}
+
+func TestOpenViewFutureRevisionInvisible(t *testing.T) {
+	s, _ := newTestStore(t)
+	ctx := context.Background()
+	original := barRowAt("INST_A", "2026-01-05", "1.20", "rev-001", mustTime("2026-01-05T15:30:00Z"), timePtr(mustTime("2026-01-05T15:35:00Z")))
+	restated := barRowAt("INST_A", "2026-01-05", "0.90", "rev-002", mustTime("2026-01-20T09:00:00Z"), timePtr(mustTime("2026-01-20T09:05:00Z")))
+	batch := appendBatch(t, s, "job-1", nil, original, restated)
+	snap, err := s.PublishSnapshot(ctx, domain.SnapshotRequest{Name: "snap-restatement", BatchIDs: []domain.ID{batch.BatchID}})
+	if err != nil {
+		t.Fatalf("publish: %v", err)
+	}
+
+	base := domain.DataQuery{
+		SnapshotID:    snap.ID,
+		Dataset:       "bar",
+		Frequency:     "daily",
+		InstrumentIDs: []domain.ID{"INST_A"},
+		Fields:        []string{"close"},
+		Range:         domain.Interval{From: mustTime("2026-01-01T00:00:00Z"), To: mustTime("2026-02-01T00:00:00Z")},
+	}
+	queryAt := func(t *testing.T, asOf time.Time) domain.PageResult[domain.Observation] {
+		t.Helper()
+		v, err := s.OpenView(ctx, snap.ID, asOf)
+		if err != nil {
+			t.Fatalf("open view at %v: %v", asOf, err)
+		}
+		q := base
+		q.AsOf = asOf
+		page, err := v.Query(ctx, q)
+		if err != nil {
+			t.Fatalf("query at %v: %v", asOf, err)
+		}
+		return page
+	}
+
+	before := queryAt(t, mustTime("2026-01-10T00:00:00Z"))
+	if len(before.Items) != 1 || before.Items[0].Values["close"].Encoded != "1.20" || before.Items[0].Provenance.RevisionID != "rev-001" {
+		t.Fatalf("before the restatement items = %#v, want 1.20/rev-001", before.Items)
+	}
+	after := queryAt(t, mustTime("2026-01-25T00:00:00Z"))
+	if len(after.Items) != 1 || after.Items[0].Values["close"].Encoded != "0.90" || after.Items[0].Provenance.RevisionID != "rev-002" {
+		t.Fatalf("after the restatement items = %#v, want 0.90/rev-002", after.Items)
+	}
+}
+
+func TestOpenViewRevisionTieBreakWithoutSupersedes(t *testing.T) {
+	s, _ := newTestStore(t)
+	ctx := context.Background()
+	lateAppend := barRowAt("INST_A", "2026-01-05", "30.20", "rev-b", mustTime("2026-01-05T15:30:00Z"), nil)
+	earlyAppend := barRowAt("INST_A", "2026-01-05", "30.10", "rev-a", mustTime("2026-01-05T15:30:00Z"), nil)
+	first := appendBatch(t, s, "job-1", nil, lateAppend)
+	second := appendBatch(t, s, "job-1", nil, earlyAppend)
+	third := appendBatch(t, s, "job-1", nil, barRowAt("INST_A", "2026-01-05", "30.30", "rev-c", mustTime("2026-01-05T16:30:00Z"), nil))
+	snap, err := s.PublishSnapshot(ctx, domain.SnapshotRequest{Name: "snap-tie", BatchIDs: []domain.ID{first.BatchID, second.BatchID, third.BatchID}})
+	if err != nil {
+		t.Fatalf("publish: %v", err)
+	}
+
+	base := domain.DataQuery{
+		SnapshotID:    snap.ID,
+		Dataset:       "bar",
+		Frequency:     "daily",
+		InstrumentIDs: []domain.ID{"INST_A"},
+		Fields:        []string{"close"},
+		Range:         domain.Interval{From: mustTime("2026-01-01T00:00:00Z"), To: mustTime("2026-02-01T00:00:00Z")},
+	}
+	tie, err := s.OpenView(ctx, snap.ID, mustTime("2026-01-05T16:00:00Z"))
+	if err != nil {
+		t.Fatalf("open tie view: %v", err)
+	}
+	q := base
+	q.AsOf = mustTime("2026-01-05T16:00:00Z")
+	page, err := tie.Query(ctx, q)
+	if err != nil {
+		t.Fatalf("query tie: %v", err)
+	}
+	if len(page.Items) != 1 {
+		t.Fatalf("tie items = %d, want 1", len(page.Items))
+	}
+	if page.Items[0].Values["close"].Encoded != "30.20" || page.Items[0].Provenance.RevisionID != "rev-b" {
+		t.Fatalf("tie winner = %s/%s, want 30.20/rev-b (revision order, not insert order)", page.Items[0].Values["close"].Encoded, page.Items[0].Provenance.RevisionID)
+	}
+
+	q.AsOf = mustTime("2026-01-05T17:00:00Z")
+	later, err := s.OpenView(ctx, snap.ID, q.AsOf)
+	if err != nil {
+		t.Fatalf("open later view: %v", err)
+	}
+	page, err = later.Query(ctx, q)
+	if err != nil {
+		t.Fatalf("query later: %v", err)
+	}
+	if len(page.Items) != 1 || page.Items[0].Values["close"].Encoded != "30.30" || page.Items[0].Provenance.RevisionID != "rev-c" {
+		t.Fatalf("later winner = %#v, want 30.30/rev-c", page.Items)
+	}
+}
+
+func TestOpenViewBoundaryPrecision(t *testing.T) {
+	s, _ := newTestStore(t)
+	ctx := context.Background()
+	batch := appendBatch(t, s, "job-1", nil, barRow("INST_A", "2026-01-05", "10.40", nil))
+	snap, err := s.PublishSnapshot(ctx, domain.SnapshotRequest{Name: "snap-boundary", BatchIDs: []domain.ID{batch.BatchID}})
+	if err != nil {
+		t.Fatalf("publish: %v", err)
+	}
+
+	availableAt := mustTime("2026-01-05T15:30:00Z")
+	eventTime := mustTime("2026-01-05T15:00:00Z")
+	month := domain.Interval{From: mustTime("2026-01-01T00:00:00Z"), To: mustTime("2026-02-01T00:00:00Z")}
+	run := func(t *testing.T, asOf time.Time, rng domain.Interval) int {
+		t.Helper()
+		v, err := s.OpenView(ctx, snap.ID, asOf)
+		if err != nil {
+			t.Fatalf("open view at %v: %v", asOf, err)
+		}
+		page, err := v.Query(ctx, domain.DataQuery{
+			SnapshotID:    snap.ID,
+			AsOf:          asOf,
+			Dataset:       "bar",
+			Frequency:     "daily",
+			InstrumentIDs: []domain.ID{"INST_A"},
+			Fields:        []string{"close"},
+			Range:         rng,
+		})
+		if err != nil {
+			t.Fatalf("query at %v: %v", asOf, err)
+		}
+		return len(page.Items)
+	}
+
+	if got := run(t, availableAt.Add(-time.Nanosecond), month); got != 0 {
+		t.Fatalf("one nanosecond before available_at items = %d, want 0", got)
+	}
+	if got := run(t, availableAt, month); got != 1 {
+		t.Fatalf("exactly at available_at items = %d, want 1", got)
+	}
+	if got := run(t, availableAt, domain.Interval{From: eventTime, To: month.To}); got != 1 {
+		t.Fatalf("range starting at event_time items = %d, want 1", got)
+	}
+	if got := run(t, availableAt, domain.Interval{From: eventTime.Add(time.Nanosecond), To: month.To}); got != 0 {
+		t.Fatalf("range starting after event_time items = %d, want 0", got)
+	}
+	if got := run(t, availableAt, domain.Interval{From: month.From, To: eventTime}); got != 0 {
+		t.Fatalf("range ending at event_time items = %d, want 0", got)
+	}
+	if got := run(t, availableAt, domain.Interval{From: month.From, To: eventTime.Add(time.Nanosecond)}); got != 1 {
+		t.Fatalf("range ending after event_time items = %d, want 1", got)
+	}
+}
+
+func TestOpenViewReplayTimeUpperBound(t *testing.T) {
+	s, _ := newTestStore(t)
+	ctx := context.Background()
+	day1 := barRowAt("INST_A", "2026-01-05", "10.40", "rev-001", mustTime("2026-01-05T15:30:00Z"), nil)
+	day2 := barRowAt("INST_A", "2026-01-06", "10.50", "rev-001", mustTime("2026-01-06T09:00:00Z"), nil)
+	batch := appendBatch(t, s, "job-1", nil, day1, day2)
+	snap, err := s.PublishSnapshot(ctx, domain.SnapshotRequest{Name: "snap-replay", BatchIDs: []domain.ID{batch.BatchID}})
+	if err != nil {
+		t.Fatalf("publish: %v", err)
+	}
+
+	base := domain.DataQuery{
+		SnapshotID:    snap.ID,
+		AsOf:          mustTime("2026-01-10T00:00:00Z"),
+		Dataset:       "bar",
+		Frequency:     "daily",
+		InstrumentIDs: []domain.ID{"INST_A"},
+		Fields:        []string{"close"},
+		Range:         domain.Interval{From: mustTime("2026-01-01T00:00:00Z"), To: mustTime("2026-02-01T00:00:00Z")},
+	}
+	v, err := s.OpenView(ctx, snap.ID, base.AsOf)
+	if err != nil {
+		t.Fatalf("open view: %v", err)
+	}
+
+	page, err := v.Query(ctx, base)
+	if err != nil {
+		t.Fatalf("query without replay time: %v", err)
+	}
+	if len(page.Items) != 2 {
+		t.Fatalf("items without replay time = %d, want 2", len(page.Items))
+	}
+
+	capped := base
+	capped.ReplayTime = timePtr(mustTime("2026-01-06T00:00:00Z"))
+	page, err = v.Query(ctx, capped)
+	if err != nil {
+		t.Fatalf("query with replay time: %v", err)
+	}
+	if len(page.Items) != 1 || page.Items[0].Values["close"].Encoded != "10.40" {
+		t.Fatalf("replay-capped items = %#v, want only the 01-05 row", page.Items)
+	}
+
+	exact := base
+	exact.ReplayTime = timePtr(mustTime("2026-01-06T09:00:00Z"))
+	page, err = v.Query(ctx, exact)
+	if err != nil {
+		t.Fatalf("query at exact ingest time: %v", err)
+	}
+	if len(page.Items) != 2 {
+		t.Fatalf("items at exact ingest time = %d, want 2 (inclusive bound)", len(page.Items))
+	}
+
+	zero := base
+	zero.ReplayTime = timePtr(time.Time{})
+	_, err = v.Query(ctx, zero)
+	assertErr(t, err, domain.CodeValidationInvalid, "data query: replay_time must not be zero")
 }
 
 func TestConnectionsLifecycle(t *testing.T) {
