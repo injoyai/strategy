@@ -1,6 +1,6 @@
 # M1S 选股功能实施
 
-版本：0.2，2026-09-12。状态：S1-01 契约已落地，S1-02 起未开始。设计来源为 [选股功能设计](../stock-screening-design.md)。SCREEN-01..08 与 SC-AC-01..12 已进入主需求与 OpenAPI；端点、Go/TS handler 与页面尚未实现，本文件定义接入步骤，不表示功能已经存在。
+版本：0.2，2026-09-12。状态：S1-01..S1-04 契约与纯规则已落地，S2 起未开始。设计来源为 [选股功能设计](../stock-screening-design.md)。SCREEN-01..08 与 SC-AC-01..12 已进入主需求与 OpenAPI；端点、Go/TS handler 与页面尚未实现，本文件定义接入步骤，不表示功能已经存在。
 
 ## 1. 目标与非目标
 
@@ -183,8 +183,8 @@ Summary 计数互斥且守恒：
 | --- | --- | --- |
 | S1-01 | 主需求、OpenAPI、Go/TS DTO 与契约测试 | 生成无漂移、未知枚举兼容、标准错误 |
 | S1-02 | 输入能力目录 | field/factor schema、Snapshot 不可用说明 |
-| S1-03 | 条件树、三值逻辑与解释 | 真值表、类型/单位、unknown/NOT 属性测试 |
-| S1-04 | 稳定排序、百分位评分与 top_n | 单元素/同值/分片/分页 oracle |
+| S1-03 | 条件树、三值逻辑与解释 | 真值表、类型/单位、unknown/NOT 属性测试（`internal/screening/truth_test.go` 的 Kleene 表、SC-AC-02 负小数比较、范围/集合全覆盖） |
+| S1-04 | 稳定排序、百分位评分与 top_n | 单元素/同值/分片/分页 oracle（`ranking_test.go` 的 m=1/全等→0.5、平局平均秩、shuffle oracle；`engine_test.go` 守恒/fail_run/空因） |
 | S2-01 | Preflight、Engine 与 Job handler | PIT、空母池、取消/恢复/fencing |
 | S2-02 | 版本/Run/结果存储与查询 | 迁移、原子发布、Summary 守恒、游标 |
 | S2-03 | 静态池与导出 | 来源时点、完整 scope、许可与 CSV 安全 |
