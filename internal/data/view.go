@@ -130,6 +130,57 @@ func (v *view) Query(ctx context.Context, q domain.DataQuery) (domain.PageResult
 	return domain.PageResult[domain.Observation]{Items: items, NextCursor: next}, nil
 }
 
+// DatasetInstruments lists the distinct instruments of one dataset that are
+// visible at the view's as_of under the same PIT filters Query applies —
+// manifest-bound batches, workspace/dataset/frequency match, available_at
+// <= as_of and the half-open effective window covering as_of. It is the
+// primitive historical_rule universes resolve through. Unlike Query there
+// is no event_time range: membership is state-type data whose semantics
+// live entirely in the effective windows, and rows pre-published for a
+// future window are already excluded by effective_from. Entity-only rows
+// (empty instrument_id) never count as members. The result is ordered by
+// instrument id and never nil; an empty list is a valid membership.
+func (v *view) DatasetInstruments(ctx context.Context, dataset, frequency string) ([]domain.ID, error) {
+	if dataset == "" {
+		return nil, domain.NewError(domain.CodeValidationInvalid, "data query: dataset is required")
+	}
+	if frequency == "" {
+		return nil, domain.NewError(domain.CodeValidationInvalid, "data query: frequency is required")
+	}
+	query := `
+		SELECT DISTINCT instrument_id
+		FROM observations
+		WHERE batch_id IN (SELECT batch_id FROM snapshot_batches WHERE snapshot_id = ? AND workspace = ?)
+		  AND workspace = ? AND dataset = ? AND frequency = ?
+		  AND instrument_id <> ''
+		  AND available_at <= ?
+		  AND (effective_from IS NULL OR (effective_from <= ? AND (effective_to IS NULL OR ? < effective_to)))
+		ORDER BY instrument_id ASC`
+	args := []any{
+		v.snapshotID, workspaceDefault,
+		workspaceDefault, dataset, frequency,
+		v.asOf.UnixNano(),
+		v.asOf.UnixNano(), v.asOf.UnixNano(),
+	}
+	rs, err := v.store.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("data: query instruments: %w", err)
+	}
+	defer rs.Close()
+	members := make([]domain.ID, 0)
+	for rs.Next() {
+		var raw string
+		if err := rs.Scan(&raw); err != nil {
+			return nil, fmt.Errorf("data: scan instrument: %w", err)
+		}
+		members = append(members, domain.ID(raw))
+	}
+	if err := rs.Err(); err != nil {
+		return nil, fmt.Errorf("data: iterate instruments: %w", err)
+	}
+	return members, nil
+}
+
 // scanObservation decodes one observations row into the domain record and
 // returns its natural key (instrument + entity + event time) used to
 // resolve the latest revision.

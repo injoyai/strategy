@@ -83,6 +83,16 @@ type SnapshotFilter struct {
 	Limit   int
 }
 
+// UniverseFilter is the list query for universe versions, with the same
+// Sort / AfterID / Limit semantics as BatchFilter. Q is a substring filter
+// on the universe name.
+type UniverseFilter struct {
+	Q       string
+	Sort    string
+	AfterID string
+	Limit   int
+}
+
 // DataStore is the durable write/read boundary over observations and
 // snapshots. Append persists a new batch of observations under one batch ID
 // (issued by the store); byte-identical rows inside one input are collapsed,
@@ -95,7 +105,10 @@ type SnapshotFilter struct {
 // atomically with the snapshot row so a crash never leaves a half-published
 // snapshot. OpenView returns a DataView bound to one snapshot and one
 // decision time; queries through it never see records whose available_at
-// exceeds the as_of.
+// exceeds the as_of. CreateUniverseVersion saves an immutable
+// member-selection version bound to one snapshot; creation is not
+// idempotent — every save is a new version, mirroring screening's
+// save semantics.
 type DataStore interface {
 	Append(context.Context, BatchInput) (domain.IngestReceipt, error)
 	GetBatch(context.Context, domain.ID) (domain.Batch, error)
@@ -104,16 +117,22 @@ type DataStore interface {
 	GetSnapshot(context.Context, domain.ID) (domain.Snapshot, error)
 	ListSnapshots(context.Context, SnapshotFilter) (domain.PageResult[domain.Snapshot], error)
 	OpenView(context.Context, domain.ID, time.Time) (DataView, error)
+	CreateUniverseVersion(context.Context, domain.UniverseVersionRequest) (domain.UniverseVersion, error)
+	GetUniverseVersion(context.Context, domain.ID) (domain.UniverseVersion, error)
+	ListUniverseVersions(context.Context, UniverseFilter) (domain.PageResult[domain.UniverseVersion], error)
 }
 
 // DataView is an immutable, point-in-time read bound to a snapshot and an
 // as_of decision time. Query applies the PIT filters (available_at <= as_of
 // and the effective window covering as_of) and the latest-revision-within-
 // snapshot rule; a query-level replay_time further narrows visibility to
-// rows ingested at or before that moment. It never returns mutable buffers
-// or future-visible records.
+// rows ingested at or before that moment. DatasetInstruments lists the
+// distinct instruments of one dataset visible at the as_of under the same
+// PIT filters — the primitive historical_rule universes resolve through.
+// It never returns mutable buffers or future-visible records.
 type DataView interface {
 	SnapshotID() domain.ID
 	AsOf() time.Time
 	Query(context.Context, domain.DataQuery) (domain.PageResult[domain.Observation], error)
+	DatasetInstruments(context.Context, string, string) ([]domain.ID, error)
 }
