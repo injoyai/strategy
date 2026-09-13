@@ -321,6 +321,87 @@ S["ScreenUniverseCreate"] = obj({"name": TEXT}, ["name"],
 S["ScreenExportCreate"] = obj({"scope": enum("selected", "all_candidates"), "format": enum("csv", "json")},
     ["scope", "format"])
 
+# ---- Replay (historical manual trading) ----
+# Models referenced by ref are fail-closed: no implicit market, fill, cost or valuation defaults.
+# Unknown or unsupported policy/model values are rejected at preflight, never silently defaulted.
+S["ReplayConfig"] = obj({"name": TEXT, "snapshot_id": ID, "universe_ref": ref("VersionRef"),
+    "range": ref("Range"), "decision_timezone": TEXT, "warmup_days": INT,
+    "day_end_policy": TEXT, "strict_pit": BOOL, "initial_cash": ref("Money"),
+    "market_rules": ref("ModelBinding"), "fill_model": ref("ModelBinding"), "cost_model": ref("ModelBinding"),
+    "valuation_policy": ref("ModelBinding"), "metrics_policy": ref("ModelBinding"),
+    "cash_policy": TEXT, "end_policy": TEXT, "benchmark_ref": nullable(ref("VersionRef")),
+    "order_types": array(TEXT), "parent_id": ID},
+    ["name", "snapshot_id", "universe_ref", "range", "decision_timezone", "warmup_days", "day_end_policy",
+     "strict_pit", "initial_cash", "market_rules", "fill_model", "cost_model", "valuation_policy",
+     "metrics_policy", "cash_policy", "end_policy", "order_types"],
+    description="Frozen inputs for a historical replay session. day_end_policy, cash_policy, end_policy and order_types are explicit validated strings; supported model/parameter values are declared by the referenced versioned Model and rejected otherwise (no implicit defaults).")
+S["ReplayPreflight"] = obj({"valid": BOOL, "issues": array(ref("Issue")),
+    "execution_dates": nullable(INT), "model_availability": array(ref("ScreenInputCoverage"))},
+    ["valid", "issues", "execution_dates", "model_availability"],
+    description="Read-only check of config, data coverage and referenced model availability; creating the session re-validates.")
+S["ReplaySessionState"] = enum("initializing", "awaiting_action", "advancing", "closing", "completed", "failed")
+S["ReplaySession"] = obj({"id": ID, "config_hash": TEXT, "config": ref("ReplayConfig"),
+    "current_as_of": TIME, "revision": INT, "state": ref("ReplaySessionState"),
+    "account_ref": nullable(ID), "checkpoint_ref": nullable(ID), "end_reason": nullable(TEXT),
+    "created_at": TIME},
+    ["id", "config_hash", "config", "current_as_of", "revision", "state", "created_at"],
+    description="ReplaySession can span multiple Jobs and real days; revision is the optimistic-concurrency token every mutating command must match.")
+S["SessionCommand"] = obj({"session_id": ID, "command_id": ID, "expected_revision": INT},
+    ["session_id", "command_id", "expected_revision"],
+    description="Base for every mutating replay command; command_id keys idempotency, expected_revision guards optimistic concurrency. Browsers never supply a historical decision time.")
+S["ManualOrderCreate"] = obj({**S["SessionCommand"]["properties"], "instrument_id": ID,
+    "direction": enum("buy", "sell"), "quantity": ref("Decimal"), "order_type": TEXT,
+    "limit_price": nullable(ref("Money")), "time_in_force": enum("day")},
+    ["session_id", "command_id", "expected_revision", "instrument_id", "direction", "quantity", "order_type", "time_in_force"],
+    description="User provides trade intent only; fills are determined by the model, never by the client.")
+S["ManualOrder"] = obj({"id": ID, "session_id": ID, "command_id": ID, "instrument_id": ID,
+    "direction": enum("buy", "sell"), "quantity": ref("Decimal"), "order_type": TEXT,
+    "limit_price": nullable(ref("Money")), "time_in_force": enum("day"),
+    "submitted_at": TIME, "decision_at": TIME,
+    "state": enum("accepted", "partially_filled", "filled", "cancelled", "expired", "rejected"),
+    "filled_quantity": ref("Decimal"), "remaining_quantity": ref("Decimal"),
+    "reserved_cash": nullable(ref("Money")), "reject_reason": nullable(TEXT)},
+    ["id", "session_id", "command_id", "instrument_id", "direction", "quantity", "order_type", "time_in_force",
+     "submitted_at", "decision_at", "state", "filled_quantity", "remaining_quantity"],
+    description="Rejected orders keep a persisted rejected state with a reason; cancellation only affects unfilled remainder, never historical fills.")
+S["ManualOrderCancel"] = obj({**S["SessionCommand"]["properties"], "order_id": ID},
+    ["session_id", "command_id", "expected_revision", "order_id"])
+S["ReplayStep"] = obj({"id": ID, "session_id": ID, "from": TIME, "to": TIME,
+    "start_revision": INT, "job_id": ID, "checkpoint_hash": TEXT, "summary": PARAMS},
+    ["id", "session_id", "from", "to", "start_revision", "job_id", "checkpoint_hash"],
+    description="A committed daily simulation checkpoint; recovery atomically republishes from the last committed checkpoint.")
+S["ReplayDataQuery"] = obj({"session_id": ID, "range": nullable(ref("Range")), "dataset": TEXT,
+    "frequency": TEXT, "instrument_ids": array(ID, minItems=1), "fields": array(TEXT, minItems=1),
+    "cursor": TEXT, "limit": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 200}},
+    ["session_id", "dataset", "frequency", "instrument_ids", "fields"],
+    description="Data is truncated to the session current_as_of by the server; future reads are rejected, never preloaded.")
+S["ReplayScreenRunCreate"] = obj({**S["SessionCommand"]["properties"], "screener_ref": ref("VersionRef")},
+    ["session_id", "command_id", "expected_revision", "screener_ref"],
+    description="snapshot, universe and as_of come from the session; the browser cannot shift to a future point.")
+S["PositionRow"] = obj({"instrument_id": ID, "quantity": ref("Decimal"), "available_quantity": ref("Decimal"),
+    "average_cost": ref("Money"), "market_value": ref("Money"), "unrealized_pnl": ref("Money"),
+    "valuation_timestamp": nullable(TIME)},
+    ["instrument_id", "quantity", "available_quantity", "average_cost", "market_value", "unrealized_pnl"])
+S["ReplayAccountSnapshot"] = obj({"session_id": ID, "as_of": TIME, "cash": ref("Money"),
+    "frozen_cash": ref("Money"), "available_cash": ref("Money"), "equity": ref("Money"),
+    "positions": array(ref("PositionRow")), "valuation_complete": BOOL, "valuation_reason": nullable(TEXT)},
+    ["session_id", "as_of", "cash", "frozen_cash", "available_cash", "equity", "positions", "valuation_complete"])
+S["ReplayNoteCreate"] = obj({**S["SessionCommand"]["properties"], "text": TEXT},
+    ["session_id", "command_id", "expected_revision", "text"])
+S["ReplayNote"] = obj({"id": ID, "session_id": ID, "command_id": ID, "decision_at": TIME,
+    "submitted_at": TIME, "text": TEXT},
+    ["id", "session_id", "command_id", "decision_at", "submitted_at", "text"])
+S["ReplayEvent"] = obj({"session_id": ID, "seq": INT, "decision_at": TIME,
+    "kind": enum("order", "fill", "cancel", "advance", "screen", "note", "ledger", "close"),
+    "command_id": nullable(ID), "order_id": nullable(ID), "detail": PARAMS},
+    ["session_id", "seq", "decision_at", "kind"],
+    description="Persistent business log; Job SSE with a window cap is not a substitute for full trading history.")
+S["ReplayReport"] = obj({"session_id": ID, "is_final": BOOL, "advanced_to": TIME,
+    "fills": INT, "trades": INT, "metrics": array(ref("Metric")), "artifact_ids": array(ID)},
+    ["session_id", "is_final", "advanced_to", "fills", "trades", "metrics", "artifact_ids"])
+S["ReplayExportCreate"] = obj({**S["SessionCommand"]["properties"], "scope": enum("orders", "fills", "ledger", "report"),
+    "format": enum("csv", "json")}, ["session_id", "command_id", "expected_revision", "scope", "format"])
+
 paths = {}
 
 
@@ -339,7 +420,8 @@ def operation(path, method, name, summary, result, body=None, status="200", pagi
         page_name = result + "Page"
         S.setdefault(page_name, obj({"items": array(ref(result)), "next_cursor": nullable(TEXT)}, ["items", "next_cursor"]))
         result = page_name
-    if method == "post" and path not in ("/data/query", "/backtests/preflight", "/factor-runs/preflight", "/universes/{id}/resolve", "/screen-runs/preflight"):
+    if method == "post" and path not in ("/data/query", "/backtests/preflight", "/factor-runs/preflight", "/universes/{id}/resolve", "/screen-runs/preflight",
+                                         "/replay-sessions/preflight", "/replay-sessions/{id}/data/query"):
         params.append(param("Idempotency-Key", "header", string(minLength=8, maxLength=128), True))
     response = {"description": "Accepted; follow Location and wait for a terminal job state." if status == "202" else "Success",
                 "content": {"application/json": {"schema": ref(result)}}}
@@ -438,6 +520,34 @@ operation("/screen-runs/{id}/explanations/{instrument_id}", "get", "getScreenExp
           extra=[param("instrument_id", "path", ID, True)])
 operation("/screen-runs/{id}/universe", "post", "saveScreenUniverse", "Save all selected instruments as a new static universe", "Universe", "ScreenUniverseCreate", "201")
 operation("/screen-runs/{id}/exports", "post", "startScreenExport", "Start an export job for the frozen selection", "Job", "ScreenExportCreate", "202")
+
+# Replay (historical manual trading) operations
+operation("/replay-sessions/preflight", "post", "preflightReplayConfig", "Validate replay config and model/data coverage without creating a session", "ReplayPreflight", "ReplayConfig")
+operation("/replay-sessions", "post", "startReplaySession", "Start a historical replay session job with frozen config", "Job", "ReplayConfig", "202")
+operation("/replay-sessions", "get", "listReplaySessions", "List replay sessions in the current workspace", "ReplaySession", paging=True,
+          extra=[param("state", "query", S["ReplaySessionState"])])
+operation("/replay-sessions/{id}", "get", "getReplaySession", "Read frozen config, current_as_of, revision and state", "ReplaySession")
+operation("/replay-sessions/{id}/data/query", "post", "queryReplayData", "Query data truncated to the session decision time", "ObservationPage", "ReplayDataQuery")
+operation("/replay-sessions/{id}/screens", "post", "startReplayScreen", "Run a saved screener against the frozen session inputs", "Job", "ReplayScreenRunCreate", "202")
+operation("/replay-sessions/{id}/screens/{screen_run_id}", "get", "getReplayScreenRun", "Read a replay-context screener run and its explanation link", "ScreenRun",
+          extra=[param("screen_run_id", "path", ID, True)])
+operation("/replay-sessions/{id}/orders", "post", "submitManualOrder", "Submit a manual order intent for the current session", "ManualOrder", "ManualOrderCreate", "201")
+operation("/replay-sessions/{id}/orders", "get", "listManualOrders", "List orders for the session by state", "ManualOrder", paging=True,
+          extra=[param("state", "query", S["ManualOrder"]["properties"]["state"])])
+operation("/replay-sessions/{id}/orders/{order_id}/cancel", "post", "cancelManualOrder", "Cancel the unfilled remainder of an order", "ManualOrder", "ManualOrderCancel",
+          extra=[param("order_id", "path", ID, True)])
+operation("/replay-sessions/{id}/advance", "post", "advanceReplayDay", "Advance the session by exactly one trading day", "Job", "SessionCommand", "202")
+operation("/replay-sessions/{id}/account", "get", "getReplayAccount", "Read the committed account snapshot", "ReplayAccountSnapshot")
+operation("/replay-sessions/{id}/events", "get", "listReplayEvents", "Page the persistent session event log by monotonic sequence", "ReplayEvent", paging=True)
+operation("/replay-sessions/{id}/notes", "post", "createReplayNote", "Append a textual note at the current decision time", "ReplayNote", "ReplayNoteCreate")
+operation("/replay-sessions/{id}/close", "post", "closeReplaySession", "Close the session, cancel remainders, value and publish a report", "Job", "SessionCommand", "202")
+operation("/replay-sessions/{id}/report", "get", "getReplayReport", "Read the preview or final replay report", "ReplayReport")
+operation("/replay-sessions/{id}/exports", "post", "startReplayExport", "Start an export job for orders/fills/ledger/report", "Job", "ReplayExportCreate", "202")
+# The orders listing is scope-free: nested orders use the {id}-parameterized pagination and a stable sort below.
+paths["/replay-sessions/{id}/orders"]["get"]["parameters"] = [
+    p for p in paths["/replay-sessions/{id}/orders"]["get"]["parameters"] if p["name"] not in ("q", "sort")]
+paths["/replay-sessions/{id}/orders"]["get"]["description"] = ("Order results are bound to the session, its committed revision, the ordering filter "
+    "and a stable sort; state changes that invalidate the cursor require a fresh query.")
 
 spec = {"openapi": "3.1.0", "info": {"title": "Strategy Research API", "version": "0.1.0",
     "description": "Proposed contract, no running server. Go backend; immutable versions, PIT data views and durable jobs. See docs/interfaces.md for semantic invariants. Generated by build_openapi.py."},

@@ -1,6 +1,6 @@
 # 历史选股与手动模拟交易设计
 
-版本：0.1。日期：2026-09-12。状态：Proposed，待实施。
+版本：0.1。日期：2026-09-12。状态：Proposed，待实施。已纳入主需求与 OpenAPI（2026-09-13，RP-00）：REPLAY-01..10 与 RP-AC-01..14 进入 `docs/requirements.md`，ReplayConfig/ReplaySession/SessionCommand/ManualOrder 等 DTO 与 `/replay-sessions*` 端点已写入 `docs/api/build_openapi.py`。
 
 用户已明确选择：**手动复盘——逐日推进历史，在界面自己决定买卖。** 本文延续当前文档设计任务，不代表页面、接口、撮合或账本已经实现；不修改现有 OpenAPI 和业务代码。
 
