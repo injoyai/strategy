@@ -1,5 +1,7 @@
 # M1 数据、快照与因子实施
 
+版本：0.1，2026-09-13。状态：M1-05 快照发布与 PIT DataView 核心已落地并按 synthetic 数据验证（Snapshot 幂等发布与 canonical manifest、effective 生效窗口、replay_time 二级上界、AC-03 反例单测）；M1-01..04 真实 Provider 链路受 DEC-01/02 阻塞，M1-06 起未开始。
+
 前置：`GATE-M0-DONE` 与 `GATE-M1-START`。目标是在已确认的一个市场、资产类别、主频率和真实数据源上，完成可追溯的数据建设与基础因子分析。未批准 DEC-01/02/03 时，只能继续 synthetic、import 和市场无关规则，不能声称完成 M1。
 
 ## 1. 端到端数据流
