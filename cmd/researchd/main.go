@@ -36,6 +36,7 @@ import (
 	"github.com/injoyai/strategy/internal/server"
 	"github.com/injoyai/strategy/internal/store"
 	"github.com/injoyai/strategy/internal/synthetic"
+	"github.com/injoyai/strategy/internal/tdxprovider"
 	"github.com/injoyai/strategy/internal/worker"
 )
 
@@ -92,6 +93,30 @@ func newAPI(
 	return api, screenRuns, nil
 }
 
+// newProviderRegistrations is the single source of truth for the providers
+// exposed by the deployed API. Factories open lazily, so building the catalog
+// never turns a public network outage into a process-startup failure.
+func newProviderRegistrations(ctx context.Context) ([]server.ProviderRegistration, error) {
+	syntheticProvider, err := synthetic.Factory{}.Open(ctx, domain.ConnectionConfig{
+		Provider: domain.VersionRef{ID: synthetic.ProviderID, Version: synthetic.ProviderVersion},
+		Settings: json.RawMessage("{}"),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("open synthetic provider: %w", err)
+	}
+	tdxProvider, err := tdxprovider.Factory{}.Open(ctx, domain.ConnectionConfig{
+		Provider: domain.VersionRef{ID: tdxprovider.ProviderID, Version: tdxprovider.ProviderVersion},
+		Settings: json.RawMessage("{}"),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("open tdx provider: %w", err)
+	}
+	return []server.ProviderRegistration{
+		{Provider: syntheticProvider, Factory: synthetic.Factory{}},
+		{Provider: tdxProvider, Factory: tdxprovider.Factory{}},
+	}, nil
+}
+
 // newRunHandlers merges the job kinds of every package that can queue work into
 // the map the worker loop claims from. A kind a POST endpoint can enqueue but
 // no handler claims would leave its job queued forever, so the merge lives in a
@@ -107,7 +132,12 @@ func newRunHandlers(
 		Data:      dataStore,
 		Artifacts: art,
 		Factories: map[domain.ID]ports.ProviderFactory{
-			synthetic.ProviderID: synthetic.Factory{},
+			synthetic.ProviderID:   synthetic.Factory{},
+			tdxprovider.ProviderID: tdxprovider.Factory{},
+		},
+		Normalizers: map[domain.ID]func(string) ports.Normalizer{
+			synthetic.ProviderID:   func(dataset string) ports.Normalizer { return synthetic.NewNormalizer(dataset) },
+			tdxprovider.ProviderID: func(dataset string) ports.Normalizer { return tdxprovider.NewNormalizer(dataset) },
 		},
 	}).Map()
 	for kind, handler := range (&screenrun.Handlers{
@@ -183,17 +213,12 @@ func run() error {
 	}
 
 	dataStore := data.New(db, nil)
-	syntheticProvider, err := synthetic.Factory{}.Open(ctx, domain.ConnectionConfig{
-		Provider: domain.VersionRef{ID: synthetic.ProviderID, Version: synthetic.ProviderVersion},
-		Settings: json.RawMessage("{}"),
-	})
+	providers, err := newProviderRegistrations(ctx)
 	if err != nil {
-		return fmt.Errorf("open synthetic provider: %w", err)
+		return err
 	}
 
-	api, screenRuns, err := newAPI(log, auth, db, jstore, dataStore, art, []server.ProviderRegistration{
-		{Provider: syntheticProvider, Factory: synthetic.Factory{}},
-	})
+	api, screenRuns, err := newAPI(log, auth, db, jstore, dataStore, art, providers)
 	if err != nil {
 		return err
 	}

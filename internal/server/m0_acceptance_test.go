@@ -114,11 +114,12 @@ func (s *acceptanceStack) start() {
 		Providers:   []ProviderRegistration{{Provider: provider, Factory: synthetic.Factory{}}},
 	})
 	handlers := (&pipeline.Handlers{
-		Jobs:      jstore,
-		Data:      dataStore,
-		Factories: map[domain.ID]ports.ProviderFactory{synthetic.ProviderID: synthetic.Factory{}},
-		Clock:     s.clk,
-		Artifacts: artStore,
+		Jobs:        jstore,
+		Data:        dataStore,
+		Factories:   map[domain.ID]ports.ProviderFactory{synthetic.ProviderID: synthetic.Factory{}},
+		Normalizers: map[domain.ID]func(string) ports.Normalizer{synthetic.ProviderID: func(dataset string) ports.Normalizer { return synthetic.NewNormalizer(dataset) }},
+		Clock:       s.clk,
+		Artifacts:   artStore,
 	}).Map()
 	// The worker claims every registered kind; cmd/researchd merges the same two
 	// maps in newRunHandlers.

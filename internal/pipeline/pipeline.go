@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"strings"
 	"time"
 
@@ -28,11 +29,12 @@ const (
 )
 
 type Handlers struct {
-	Jobs      *jobs.Store
-	Data      *data.Store
-	Factories map[domain.ID]ports.ProviderFactory
-	Clock     ports.Clock
-	Artifacts *artifacts.Store
+	Jobs        *jobs.Store
+	Data        *data.Store
+	Factories   map[domain.ID]ports.ProviderFactory
+	Normalizers map[domain.ID]func(string) ports.Normalizer
+	Clock       ports.Clock
+	Artifacts   *artifacts.Store
 }
 
 func (h *Handlers) clock() ports.Clock {
@@ -132,6 +134,26 @@ func (h *Handlers) openProvider(ctx context.Context, cfg domain.ConnectionConfig
 	return provider, nil
 }
 
+func closeProvider(provider ports.DataProvider) {
+	if closer, ok := provider.(io.Closer); ok {
+		_ = closer.Close()
+	}
+}
+
+func (h *Handlers) normalizer(providerID domain.ID, dataset string) (ports.Normalizer, error) {
+	build, ok := h.Normalizers[providerID]
+	if !ok {
+		return nil, domain.NewError(domain.CodeInternalError,
+			"pipeline: no normalizer registered for provider %s", providerID)
+	}
+	normalizer := build(dataset)
+	if normalizer == nil {
+		return nil, domain.NewError(domain.CodeValidationInvalid,
+			"pipeline: provider %s does not normalize dataset %s", providerID, dataset)
+	}
+	return normalizer, nil
+}
+
 func capabilityOf(desc domain.ProviderDescriptor, dataset string) (*domain.Capability, error) {
 	for i := range desc.Capabilities {
 		if desc.Capabilities[i].Dataset == dataset {
@@ -167,9 +189,12 @@ func pageLimit(capability *domain.Capability) int {
 	return synthetic.MaxPageSize
 }
 
-func (h *Handlers) collect(ctx context.Context, task *jobs.Task, provider ports.DataProvider, base domain.FetchRequest) (*collected, error) {
+func (h *Handlers) collect(ctx context.Context, task *jobs.Task, providerID domain.ID, provider ports.DataProvider, base domain.FetchRequest) (*collected, error) {
 	out := &collected{}
-	normalizer := synthetic.NewNormalizer(base.Dataset)
+	normalizer, err := h.normalizer(providerID, base.Dataset)
+	if err != nil {
+		return nil, err
+	}
 	for {
 		if task.Cancelled() {
 			return nil, domain.NewError(domain.CodeResourceConflict,
@@ -221,6 +246,7 @@ func (h *Handlers) ConnectionCheck(ctx context.Context, task *jobs.Task) error {
 	if err != nil {
 		return err
 	}
+	defer closeProvider(provider)
 	issues, err := provider.Check(ctx)
 	if err != nil {
 		return wrapUpstream(err, "pipeline: check provider %s", conn.Provider.ID)
@@ -305,6 +331,7 @@ func (h *Handlers) IngestionRun(ctx context.Context, task *jobs.Task) error {
 	if err != nil {
 		return err
 	}
+	defer closeProvider(provider)
 	desc, err := provider.Describe(ctx)
 	if err != nil {
 		return wrapUpstream(err, "pipeline: describe provider %s", conn.Provider.ID)
@@ -319,7 +346,7 @@ func (h *Handlers) IngestionRun(ctx context.Context, task *jobs.Task) error {
 
 	var calendar []domain.Observation
 	if req.Dataset == synthetic.DatasetBar {
-		calendar, err = h.collectCalendar(ctx, task, provider, desc, req)
+		calendar, err = h.collectCalendar(ctx, task, conn.Provider.ID, provider, desc, req)
 		if err != nil {
 			return err
 		}
@@ -333,11 +360,13 @@ func (h *Handlers) IngestionRun(ctx context.Context, task *jobs.Task) error {
 		Range:         req.Range,
 		Page:          domain.Page{Limit: pageLimit(capability)},
 	}
-	main, err := h.collect(ctx, task, provider, base)
+	main, err := h.collect(ctx, task, conn.Provider.ID, provider, base)
 	if err != nil {
 		return err
 	}
-	applyAvailabilityPolicy(main.observations)
+	if conn.Provider.ID == synthetic.ProviderID {
+		applyAvailabilityPolicy(main.observations)
+	}
 	qualityIssues := synthetic.NewQualityEngine(calendar, h.clock().Now()).Check(main.observations)
 	issues := append(main.issues, qualityIssues...)
 
@@ -360,7 +389,7 @@ func (h *Handlers) IngestionRun(ctx context.Context, task *jobs.Task) error {
 	return nil
 }
 
-func (h *Handlers) collectCalendar(ctx context.Context, task *jobs.Task, provider ports.DataProvider, desc domain.ProviderDescriptor, req domain.IngestionRequest) ([]domain.Observation, error) {
+func (h *Handlers) collectCalendar(ctx context.Context, task *jobs.Task, providerID domain.ID, provider ports.DataProvider, desc domain.ProviderDescriptor, req domain.IngestionRequest) ([]domain.Observation, error) {
 	capability, err := capabilityOf(desc, synthetic.DatasetCalendar)
 	if err != nil {
 		return nil, err
@@ -369,7 +398,7 @@ func (h *Handlers) collectCalendar(ctx context.Context, task *jobs.Task, provide
 	if len(capability.Frequencies) > 0 {
 		frequency = capability.Frequencies[0]
 	}
-	collected, err := h.collect(ctx, task, provider, domain.FetchRequest{
+	collected, err := h.collect(ctx, task, providerID, provider, domain.FetchRequest{
 		Dataset:       synthetic.DatasetCalendar,
 		Frequency:     frequency,
 		InstrumentIDs: req.InstrumentIDs,

@@ -44,4 +44,5 @@ const (
 	CodeQualityUnknownUnit         = "quality.unknown_unit"
 	CodeQualityFutureAvailableAt   = "quality.future_available_at"
 	CodeQualitySupersededRevision  = "quality.superseded_revision"
+	CodeQualityPITUnverified       = "quality.pit_unverified"
 )

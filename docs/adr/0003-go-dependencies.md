@@ -16,7 +16,7 @@ M0-01 要求固定初始生产依赖并完成许可证、安全、Windows/目标
 | HTTP 路由 | 标准库 `net/http`（Go 1.22+ 方法+路径模式） | Go 许可 | 标准库无新增依赖；M0-03 落地中间件链 |
 | 元数据迁移 | `github.com/pressly/goose/v3 v3.28.0` | MIT | `internal/deps_smoke`：对 modernc SQLite 执行嵌入 SQL 迁移 up 成功并建表 |
 | 日志 | 标准库 `log/slog` | Go 许可 | `internal/logging`：JSON/文本 handler + 稳定字段约定 |
-| SQLite 驱动 | `modernc.org/sqlite v1.58.0` | BSD-3 | `internal/deps_smoke`：文件库启用 WAL、busy_timeout、读写往返（Windows/amd64 无 CGO） |
+| SQLite 驱动 | `github.com/glebarez/go-sqlite v1.22.0` + `modernc.org/sqlite v1.58.0` | MIT + BSD-3 | ADR-0006 将 driver-name 注册统一到前者、纯 Go 运行时继续显式锁定后者；`internal/deps_smoke` 与 store/data/jobs 测试验证 WAL、busy_timeout、读写及现有存储语义（Windows/amd64 无 CGO） |
 | 配置格式 | `encoding/json` 配置文件 + `RESEARCHD_*` 环境变量覆盖 | Go 许可 | `internal/config`：优先级 defaults→file→env；错误含字段与来源；无 secret 入配置 |
 
 ## 后果

@@ -2,11 +2,13 @@
 // embedded schema migrations, and durable implementations of the ports
 // defined by the application (idempotency today, job persistence in M0-05).
 //
-// SQLite runtime contract (DEC-03): modernc.org/sqlite (pure Go), WAL
-// journaling on a local filesystem only, a busy timeout to serialize the
+// SQLite runtime contract (DEC-03): a pure-Go modernc SQLite implementation,
+// WAL journaling on a local filesystem only, a busy timeout to serialize the
 // concurrent writers of a single process, and NORMAL synchronous mode which
 // with WAL keeps durability at the checkpoint boundary without fsync per
-// commit.
+// commit. The glebarez driver is used because github.com/injoyai/tdx already
+// links it; importing modernc.org/sqlite beside it would register "sqlite"
+// twice and panic during process initialization.
 package store
 
 import (
@@ -16,7 +18,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	_ "modernc.org/sqlite"
+	_ "github.com/glebarez/go-sqlite"
 )
 
 // connectionPRAGMAs are applied per pooled connection through the driver's

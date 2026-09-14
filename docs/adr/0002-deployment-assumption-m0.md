@@ -14,7 +14,7 @@ M0 按以下假设执行（维护者 2026-09-12 批准）：
 
 1. **单机实验部署**：单台机器、单进程二进制 `researchd`，内含 HTTP 与 Worker 两个组件，仅通过持久化 Job 协作，测试中可分别启动/停止（IMP-07 批准：单二进制 + 持久化队列 + 可分离 Worker）。
 2. **元数据存储用 SQLite**（IMP-03 的 M0 部分）：
-   - 驱动为 `modernc.org/sqlite`（纯 Go、无 CGO，Windows 友好，BSD-3）。
+   - `modernc.org/sqlite` 提供纯 Go、无 CGO 的 SQLite 运行时（Windows 友好，BSD-3）；自 ADR-0006 起由 `github.com/glebarez/go-sqlite` 注册应用使用的 `sqlite` driver name，以兼容 TDX 依赖树并避免重复注册 panic。
    - 数据库文件仅允许本机文件系统；启用 WAL 并设置 `busy_timeout`；运行时版本须包含上游已修复的 WAL-reset 问题，由 go.mod 锁定 modernc 版本保证。
 3. **认证模式**：M0 支持 `local`（显式声明，强制绑定回环地址，启动日志提示仅限开发）与 `bearer`（令牌文件引用）两种；`local` 不可绑定非回环地址，由配置校验拒绝。
 

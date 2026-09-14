@@ -1,6 +1,6 @@
 # M1 数据、快照与因子实施
 
-版本：0.1，2026-09-14。状态：M1-05..08 快照发布、PIT DataView、UniverseVersion resolver、Factor registry/DAG/preflight/cache 与因子分析 artifact 已落地并按 synthetic 数据验证（Snapshot 幂等发布与 canonical manifest、effective 生效窗口、replay_time 二级上界、static/historical_rule 定义与 canonical hash、快照绑定校验、经 DataView 的历史成员解析与 CacheKey、builtin/expression 统一注册与无环 DAG 校验、单轮 preflight 一次返回全部问题、暂存式缓存 Stage/Publish/Abort、AC-03/04/05 反例单测、标签仅经 LabelSet 显式输入并以 import 白名单固化隔离、逐日覆盖/缺失原因随时间变化与 null+reason、IC/Rank IC/分位分组/高低价差与按 horizon 衰减、训练/验证/测试段标签与样本数及未覆盖日期报告、canonical artifact 与 checksum 字节级确定性）；M1-09 已落地：后端 universes CRUD/resolve、factors list/detail、同步 factor-runs preflight/run、factor-analyses 全流程经 research 编排层与 artifact 存储，错误码映射（factor.request_invalid→400 / factor.not_registered→404 / factor.preflight_failed→422）与幂等重试覆盖；前端 `/universes`、`/factors`、`/factors/:id` 页面按 frontend-delivery.md §2 跑通「历史成员预览、因子预检/运行/分析、依赖回链」的成功/失败/重试路径（选中版本存于 URL、错误渲染 contract code/request_id、失败可重放同一请求）。M1-01..04 真实 Provider 链路仍受 DEC-01/02 阻塞；跨页面浏览器闭环（UI-01）与真实字段验收尚未声明。
+版本：0.1，2026-09-14。状态：M1-05..08 快照发布、PIT DataView、UniverseVersion resolver、Factor registry/DAG/preflight/cache 与因子分析 artifact 已落地并按 synthetic 数据验证（Snapshot 幂等发布与 canonical manifest、effective 生效窗口、replay_time 二级上界、static/historical_rule 定义与 canonical hash、快照绑定校验、经 DataView 的历史成员解析与 CacheKey、builtin/expression 统一注册与无环 DAG 校验、单轮 preflight 一次返回全部问题、暂存式缓存 Stage/Publish/Abort、AC-03/04/05 反例单测、标签仅经 LabelSet 显式输入并以 import 白名单固化隔离、逐日覆盖/缺失原因随时间变化与 null+reason、IC/Rank IC/分位分组/高低价差与按 horizon 衰减、训练/验证/测试段标签与样本数及未覆盖日期报告、canonical artifact 与 checksum 字节级确定性）；M1-09 已落地：后端 universes CRUD/resolve、factors list/detail、同步 factor-runs preflight/run、factor-analyses 全流程经 research 编排层与 artifact 存储，错误码映射（factor.request_invalid→400 / factor.not_registered→404 / factor.preflight_failed→422）与幂等重试覆盖；前端 `/universes`、`/factors`、`/factors/:id` 页面按 frontend-delivery.md §2 跑通「历史成员预览、因子预检/运行/分析、依赖回链」的成功/失败/重试路径（选中版本存于 URL、错误渲染 contract code/request_id、失败可重放同一请求）。M1-01/02 已交付 TDX 的有界适配切片（A 股 instrument、由上证综指日线推导的 calendar、未复权 daily bar、分页/单位/时区标准化、`pit_unverified`）；这不等于完成真实 Provider 验收，许可、权威日历、复权/公司行为、历史范围/限流和 PIT 修订证据仍受 DEC-01/02 阻塞。跨页面浏览器闭环（UI-01）与真实字段验收尚未声明。
 
 前置：`GATE-M0-DONE` 与 `GATE-M1-START`。目标是在已确认的一个市场、资产类别、主频率和真实数据源上，完成可追溯的数据建设与基础因子分析。未批准 DEC-01/02/03 时，只能继续 synthetic、import 和市场无关规则，不能声称完成 M1。
 
@@ -41,6 +41,15 @@ flowchart LR
 | 许可 | 缓存、展示、导出、团队共享和保留期允许范围 |
 
 Provider 私有字段停留在适配器与 raw evidence；Normalizer 输出平台 schema。应用层只依赖注册的 `DatasetSchema`。
+
+### 2.1.1 当前 TDX 适配边界（ADR-0006）
+
+- Provider 固定为 `tdx@v1-2b3dcae`，Go 依赖固定到上游提交 `2b3dcae30c42cae1f5e2f3a33359d12b761ae7fe`；连接可指定有序 `host:7709` 列表和 100..60000ms socket timeout，缺省使用该提交内置节点。
+- 当前只声明 A 股股票 `instrument/static`、`calendar/daily`、`bar/daily`。证券 ID 使用 `sh|sz|bj` 前缀；市场输出 MIC `XSHG|XSHE|XBEI`。
+- 价格与成交额从协议层“厘”转换成 3 位十进制元；股票成交量从“手”转换成股；事件时间按协议墙钟重建为 `Asia/Shanghai`，不依赖进程 `time.Local`。
+- `calendar` 仅由上证综指日线存在性推导 09:30..15:00 常规交易日，不能证明临时休市、半日市或交易所公告语义；因此不是权威日历。
+- 上游没有权威发布时刻、历史修订号或 supersedes 链。Normalizer 保留 `published_at = null`，仅把本地抓取时刻记录为 first-seen `available_at/ingested_at`，并持续附加 `quality.pit_unverified`；严格 PIT 快照必须拒绝这些批次。
+- Provider 已进入真实进程的 provider/factory/normalizer 注册表；离线测试覆盖配置、能力、分页、游标、单位、时区与 PIT fail-closed，联网探针作为显式 `TDX_LIVE=1` 测试，不进入默认测试套件。
 
 ### 2.2 更新模式
 

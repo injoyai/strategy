@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -17,6 +18,7 @@ import (
 	"github.com/injoyai/strategy/internal/ports"
 	"github.com/injoyai/strategy/internal/store"
 	"github.com/injoyai/strategy/internal/synthetic"
+	"github.com/injoyai/strategy/internal/tdxprovider"
 )
 
 var harnessNow = time.Date(2026, 1, 15, 12, 0, 0, 0, time.UTC)
@@ -45,10 +47,11 @@ func newHarness(t *testing.T) (*Handlers, *jobs.Store, *ports.FixedClock) {
 	}
 	clk := ports.NewFixedClock(harnessNow)
 	h := &Handlers{
-		Data:      data.New(db, clk),
-		Jobs:      jobs.NewStore(db, clk, nil),
-		Factories: map[domain.ID]ports.ProviderFactory{synthetic.ProviderID: synthetic.Factory{}},
-		Clock:     clk,
+		Data:        data.New(db, clk),
+		Jobs:        jobs.NewStore(db, clk, nil),
+		Factories:   map[domain.ID]ports.ProviderFactory{synthetic.ProviderID: synthetic.Factory{}},
+		Normalizers: map[domain.ID]func(string) ports.Normalizer{synthetic.ProviderID: func(dataset string) ports.Normalizer { return synthetic.NewNormalizer(dataset) }},
+		Clock:       clk,
 	}
 	return h, h.Jobs, clk
 }
@@ -326,4 +329,83 @@ func TestIngestionRunCleanEndToEnd(t *testing.T) {
 		StrictPIT: true,
 	})
 	waitState(t, js, strictJob.ID, jobs.StateSucceeded)
+}
+
+func TestLiveTDXIngestionFailsClosedForStrictPIT(t *testing.T) {
+	if os.Getenv("TDX_LIVE") != "1" {
+		t.Skip("set TDX_LIVE=1 to exercise the public TDX endpoint through the ingestion pipeline")
+	}
+	h, js, _ := newHarness(t)
+	// The real provider timestamps first-seen evidence with wall time; align
+	// the quality engine instead of comparing it with newHarness's frozen
+	// January fixture clock.
+	h.Clock = ports.SystemClock{}
+	h.Factories[tdxprovider.ProviderID] = tdxprovider.Factory{}
+	h.Normalizers[tdxprovider.ProviderID] = func(dataset string) ports.Normalizer {
+		return tdxprovider.NewNormalizer(dataset)
+	}
+	ctx := context.Background()
+	conn, err := h.Data.CreateConnection(ctx, domain.ConnectionConfig{
+		Provider: domain.VersionRef{ID: tdxprovider.ProviderID, Version: tdxprovider.ProviderVersion},
+		Name:     "tdx-live",
+		Settings: json.RawMessage(`{"hosts":["124.71.187.122:7709"],"timeout_ms":5000}`),
+	})
+	if err != nil {
+		t.Fatalf("create TDX connection: %v", err)
+	}
+	now := time.Now().UTC()
+	req := domain.IngestionRequest{
+		ConnectionRef: &domain.VersionRef{ID: conn.ID, Version: conn.Version},
+		Dataset:       tdxprovider.DatasetBar,
+		Frequency:     "daily",
+		InstrumentIDs: []domain.ID{"bj920992"},
+		Range: domain.Interval{
+			From: now.AddDate(0, -2, 0),
+			To:   now.AddDate(0, 0, 1),
+		},
+		Mode: domain.IngestBackfill,
+		Mapping: []domain.Mapping{
+			{SourceField: "close", TargetField: "close", SourceUnit: "price", TargetUnit: "price", Scale: "1"},
+		},
+		Timezone:              "Asia/Shanghai",
+		AvailabilityPolicyRef: domain.VersionRef{ID: "tdx-first-seen", Version: "v1"},
+	}
+	job := createPipelineJob(t, js, KindIngestionRun, req)
+	startLoop(t, h, js)
+	done := waitState(t, js, job.ID, jobs.StateSucceeded)
+	if len(done.ResultRefs) != 1 || done.ResultRefs[0].Kind != resultKindBatch {
+		t.Fatalf("TDX ingestion refs = %+v", done.ResultRefs)
+	}
+	batchID := domain.ID(done.ResultRefs[0].ID)
+	batch, err := h.Data.GetBatch(ctx, batchID)
+	if err != nil {
+		t.Fatalf("get TDX batch: %v", err)
+	}
+	if batch.RowCount == 0 {
+		t.Fatal("TDX ingestion produced an empty batch")
+	}
+	foundPITWarning := false
+	var errorIssues []domain.Issue
+	for _, issue := range batch.Issues {
+		if issue.Code == domain.CodeQualityPITUnverified {
+			foundPITWarning = true
+		}
+		if issue.Severity == domain.SeverityError {
+			errorIssues = append(errorIssues, issue)
+		}
+	}
+	if !foundPITWarning {
+		t.Fatalf("TDX batch issues = %+v, want quality.pit_unverified", batch.Issues)
+	}
+	if len(errorIssues) > 0 {
+		t.Fatalf("TDX batch has %d unexpected error issue(s); first = %+v", len(errorIssues), errorIssues[0])
+	}
+
+	strictJob := createPipelineJob(t, js, KindSnapshotPublish, domain.SnapshotRequest{
+		Name: "tdx-strict-must-fail", BatchIDs: []domain.ID{batchID}, StrictPIT: true,
+	})
+	failed := waitState(t, js, strictJob.ID, jobs.StateFailed)
+	if !strings.Contains(failed.Error, "strict PIT") {
+		t.Fatalf("strict TDX snapshot error = %q", failed.Error)
+	}
 }

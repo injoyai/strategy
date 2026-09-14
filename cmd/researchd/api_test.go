@@ -19,7 +19,7 @@ import (
 	"github.com/injoyai/strategy/internal/screenrun"
 	"github.com/injoyai/strategy/internal/server"
 	"github.com/injoyai/strategy/internal/store"
-	"github.com/injoyai/strategy/internal/synthetic"
+	"github.com/injoyai/strategy/internal/tdxprovider"
 )
 
 // These tests exercise the exact assembly newAPI performs for the deployed
@@ -50,16 +50,12 @@ func newTestHandler(t *testing.T) http.Handler {
 	}
 	art := artifacts.New(t.TempDir(), db)
 	dataStore := data.New(db, nil)
-	provider, err := synthetic.Factory{}.Open(ctx, domain.ConnectionConfig{
-		Provider: domain.VersionRef{ID: synthetic.ProviderID, Version: synthetic.ProviderVersion},
-		Settings: json.RawMessage("{}"),
-	})
+	providers, err := newProviderRegistrations(ctx)
 	if err != nil {
-		t.Fatalf("open synthetic provider: %v", err)
+		t.Fatalf("build provider registrations: %v", err)
 	}
 
-	api, screenRuns, err := newAPI(silentLogger(), server.LocalAuth{}, db, jstore, dataStore, art,
-		[]server.ProviderRegistration{{Provider: provider, Factory: synthetic.Factory{}}})
+	api, screenRuns, err := newAPI(silentLogger(), server.LocalAuth{}, db, jstore, dataStore, art, providers)
 	if err != nil {
 		t.Fatalf("build api: %v", err)
 	}
@@ -123,6 +119,44 @@ func TestNewAPIFactorCatalogIsNotEmpty(t *testing.T) {
 	if len(page.Items) == 0 {
 		t.Fatal("the factor catalog is empty: the default factors were not registered in the wiring")
 	}
+}
+
+// TestNewAPIProviderCatalogIncludesTDX uses the same registration constructor
+// as run(), guarding against a provider adapter that exists in code but is not
+// actually visible to connection creation in the deployed process.
+func TestNewAPIProviderCatalogIncludesTDX(t *testing.T) {
+	h := newTestHandler(t)
+	rec := do(t, h, http.MethodGet, "/api/v1/providers", nil, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/v1/providers = %d, want 200", rec.Code)
+	}
+	var page struct {
+		Items []struct {
+			ID           string `json:"id"`
+			Version      string `json:"version"`
+			Capabilities []struct {
+				PITLevel string `json:"pit_level"`
+			} `json:"capabilities"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &page); err != nil {
+		t.Fatalf("decode provider page: %v", err)
+	}
+	for _, provider := range page.Items {
+		if provider.ID != tdxprovider.ProviderID.String() {
+			continue
+		}
+		if provider.Version != tdxprovider.ProviderVersion || len(provider.Capabilities) != 3 {
+			t.Fatalf("TDX provider = %+v", provider)
+		}
+		for _, capability := range provider.Capabilities {
+			if capability.PITLevel != string(domain.PITUnverified) {
+				t.Fatalf("TDX capability PIT = %q, want unverified", capability.PITLevel)
+			}
+		}
+		return
+	}
+	t.Fatal("deployed provider catalog does not contain TDX")
 }
 
 // TestNewAPIScreenRunPreflightIsMounted proves the POST-only screening surface

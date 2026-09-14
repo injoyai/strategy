@@ -6,8 +6,8 @@
 
 | ID | 状态 | 必须回答的问题 | 解锁内容 | 最晚门禁 | 应形成的证据 |
 | --- | --- | --- | --- | --- | --- |
-| DEC-01 | Blocked | 首期市场、资产类别、主频率、交易时区和日历来源 | 市场规则、真实数据验收、因子首发 | `GATE-M1-START` | ADR、市场能力表、代表性证券/日期样本 |
-| DEC-02 | Blocked | 供应商、账户权限、历史范围、修订/PIT 覆盖、预算与许可 | 真实 Provider 和数据可信度承诺 | `GATE-M1-START` | 官方接口/许可、账号探针、限流与字段样本 |
+| DEC-01 | Partial（2026-09-14，ADR-0006） | 首期适配边界已定为 A 股股票、日频、Asia/Shanghai；权威交易日历与复权/公司行为口径仍未确认 | TDX instrument/calendar/bar 适配器；不解锁真实回测口径 | `GATE-M1-START` | ADR、市场能力表、代表性证券/日期样本 |
+| DEC-02 | Partial（2026-09-14，ADR-0006） | 当前唯一来源已定为 `github.com/injoyai/tdx` 公共 7709 行情；历史范围、限流、修订/PIT、数据许可和导出权仍未获权威证明 | 可接入并保存为 `pit_unverified` 的真实 Provider；不解锁严格 PIT 或数据可信度承诺 | `GATE-M1-START` | 官方接口/许可、账号探针、限流与字段样本 |
 | DEC-03 | Partial（M0 假设 2026-09-12 已确认，见 ADR-0002） | 首期个人本地或团队部署；数据量、并发、备份与恢复目标 | SQLite/PostgreSQL、认证、性能指标 | `GATE-M0-START` 可先按单机实验；`GATE-M1-START` 前必须定案 | 部署 ADR、容量模型、故障与恢复目标 |
 | DEC-04 | Blocked | 仅研究、研究+模拟或包含实盘 | M4 范围 | `GATE-M4-START` | 独立交易范围与合规/风控要求 |
 | DEC-05 | Blocked | 与其他交易系统共享的模型、schema、包格式和兼容版本 | 成果包映射 | `GATE-M2-START`；M0 只实现内部 manifest | 跨系统契约与兼容性测试 |
@@ -31,7 +31,7 @@
 | --- | --- | --- | --- | --- |
 | IMP-01 | Approved（2026-09-12，ADR-0001） | module `github.com/injoyai/strategy`，go ≥ 1.26（toolchain 自动获取） | module path 使用项目拥有且长期可控的路径；不写 `example.com` 占位后继续扩散 | `GATE-M0-START` |
 | IMP-02 | Approved（2026-09-12，ADR-0001） | 单仓库单 Go module，服务代码位于 `cmd/` 与 `internal/` | 与 Go 官方 server module 布局一致；将领域包保持为 internal，未来确需共享再拆 module | `GATE-M0-START` 批准 |
-| IMP-03 | Partial（M0 用 SQLite，ADR-0002；随 DEC-03 于 GATE-M1-START 终定） | 元数据数据库与驱动 | M0：`modernc.org/sqlite`（纯 Go）+ WAL + 本机文件系统；团队/多主机 Worker 选择 PostgreSQL。若使用 SQLite WAL，数据库文件必须在本机文件系统，并验证运行时包含已修复 WAL-reset 问题的版本 | 随 DEC-03 |
+| IMP-03 | Partial（M0 用 SQLite，ADR-0002；TDX 兼容修订见 ADR-0006；随 DEC-03 于 GATE-M1-START 终定） | 元数据数据库与驱动 | M0：`github.com/glebarez/go-sqlite` 注册 `sqlite` 驱动并使用显式锁定的 `modernc.org/sqlite` 纯 Go 运行时 + WAL + 本机文件系统；避免与 TDX 的同名驱动注册冲突。团队/多主机 Worker 选择 PostgreSQL | 随 DEC-03 |
 | IMP-04 | Approved（2026-09-12，ADR-0003） | `shopspring/decimal`，领域层包装类型 | 已验证 JSON 字符串解析、精确加法、非法输入拒绝与 MIT 许可；指数拒绝由 HTTP 边界解析器承担 | M0 值对象前 |
 | IMP-05 | Partial（2026-09-12，ADR-0003/0004） | 路由=标准库 `net/http`；迁移=`pressly/goose/v3`；日志=标准库 `log/slog`；TS 客户端=`openapi-typescript` + `openapi-fetch` | 优先标准库和小依赖；锁定版本、许可证与生成可重复性 | 对应代码首次合入前 |
 | IMP-06 | Proposed | 文件格式和布局 | M0 用小型可核查实现证明 manifest/原子发布；Parquet 库必须用代表性行情/因子矩阵基准后选择 | M1 大数据写入前 |
