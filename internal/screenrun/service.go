@@ -164,14 +164,16 @@ func (s *Service) Preflight(ctx context.Context, req Request) (*Preflight, error
 		})
 	}
 	if res.windowDates > 0 {
-		// One scanned row per member per date in the derived window; one result
-		// row per member. Both are derived from the resolved inputs, never
-		// guessed from the rule set alone.
+		// One scanned row per member per date in the derived window: that number
+		// exists only for a factor window, so a field-only run leaves it unset
+		// rather than inventing one.
 		scanRows := len(res.members) * res.windowDates
-		resultRows := len(res.members)
 		out.EstimatedScanRows = &scanRows
-		out.EstimatedRows = &resultRows
 	}
+	// The result row count is the mother pool size — one row per member,
+	// whatever the inputs are — so it is reported whenever the pool resolved.
+	resultRows := len(res.members)
+	out.EstimatedRows = &resultRows
 	out.Valid = !hasError(out.Issues)
 	return out, nil
 }
@@ -513,6 +515,11 @@ func (s *Service) checkFactorBinding(
 		for _, problem := range problems {
 			bindingIssues = append(bindingIssues, issueFor(binding.BindingID, problem.Code, problem.Message))
 		}
+		// Every engine problem blocks the binding, including a per-member data
+		// shortfall: the factor engine refuses to compute when any requested
+		// member cannot be, so a run that accepted the finding would fail later
+		// with a less actionable message. The message names the members, which is
+		// what an operator needs to widen the window or narrow the pool.
 		return bindingResult{
 			coverage: unavailable(binding.BindingID, problems[0].Code),
 			issues:   bindingIssues,
