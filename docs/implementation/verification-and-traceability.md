@@ -104,7 +104,7 @@
 | SC-AC-05 | `ScreenScore_PercentileEdgeCases`：单元素/全同值为 0.5，非法权重拒绝，缺分量不重分权 |
 | SC-AC-06 | `ScreenResult_EmptyAndShortTopN`：0/不足 N 成功且 summary 守恒，不补不合格项，展示缺失不改成员 |
 | SC-AC-07 | `ScreenRun_VersionAndContextImmutable`：换 snapshot/as_of 创建新 Run，旧方案/结果保持 |
-| SC-AC-08 | `ScreenRun_JobRecoveryAndFencing`：并发、取消、重启、旧租约只有一个终态/结果 |
+| SC-AC-08 | 选股侧已可执行：`TestCancelledScreenRunLeavesNoRunBehind`（取消 → 无 run 行、无结果）、`TestScreenRunHandlerLeavesUnresolvableRunsUnpublished`（不可解析 → job failed 且 run 不发布）、`TestScreenRunResultIsNotReadyBeforePublish`（未发布不给结果）、M1S 纵向验收的"重跑产生新 Run 且逐行一致"。Job 的并发/租约/fencing/恢复由 M0-05 的 `internal/jobs` 套件覆盖（选股复用同一机件，未另建） |
 | SC-AC-09 | `ScreenOutput_UsesFrozenFullScope`：保存池用完整入选，导出 scope 与冻结结果一致，不取当前页 |
 | SC-AC-10 | 选股侧已可执行（回测侧待 S4）：`screenrun` 拒绝 `Universe.source.as_of > req.as_of` 的名单用法（error 级 `screenrun.universe_selection_after_as_of`，422），quality limits 随 `source.quality_limits` 保留 |
 | SC-AC-11 | 浏览器：无手写 JSON 完成成功/预检失败/断线/键盘/窄屏，失败保留输入，空结果可解释 |

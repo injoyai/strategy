@@ -1101,3 +1101,49 @@ func TestScreenRunSurfaceAnswersOnlyForItsOwnResult(t *testing.T) {
 		t.Fatalf("code = %q, want %q", env.Code, domain.CodePaginationCursorExpired)
 	}
 }
+
+// TestCancelledScreenRunLeavesNoRunBehind pins the screening half of SC-AC-08: a
+// cancelled job must leave no half-finished run. This stack runs no worker, so a
+// submitted run's job stays unclaimed — the run row is created only when a
+// worker starts it, which is what makes "cancelled" mean "nothing happened".
+func TestCancelledScreenRunLeavesNoRunBehind(t *testing.T) {
+	stack := newScreenStack(t)
+	rec := stack.submit(t, "screenrun-cancel-key-1", stack.preflightBody(stack.universe.DefinitionHash))
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("submit status = %d, want 202: %s", rec.Code, rec.Body.String())
+	}
+	var job struct {
+		ID    string `json:"id"`
+		State string `json:"state"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &job); err != nil {
+		t.Fatalf("decode job: %v", err)
+	}
+	if job.State != string(jobs.StateQueued) {
+		t.Fatalf("job state = %q, want queued", job.State)
+	}
+
+	cancel := doRequest(t, stack.handler, http.MethodPost, "/api/v1/jobs/"+job.ID+"/cancel", map[string]string{
+		"Idempotency-Key": "screenrun-cancel-idem-1",
+	}, nil)
+	if cancel.Code != http.StatusOK {
+		t.Fatalf("cancel status = %d, want 200: %s", cancel.Code, cancel.Body.String())
+	}
+	var cancelled struct {
+		State string `json:"state"`
+	}
+	if err := json.Unmarshal(cancel.Body.Bytes(), &cancelled); err != nil {
+		t.Fatalf("decode cancelled job: %v", err)
+	}
+	if cancelled.State != string(jobs.StateCancelled) {
+		t.Fatalf("state = %q, want cancelled", cancelled.State)
+	}
+
+	runs, err := stack.data.ListScreenRuns(context.Background(), ports.ScreenRunFilter{Limit: 50})
+	if err != nil {
+		t.Fatalf("list runs: %v", err)
+	}
+	if len(runs.Items) != 0 {
+		t.Fatalf("runs = %+v, want no run for a job that never started", runs.Items)
+	}
+}
