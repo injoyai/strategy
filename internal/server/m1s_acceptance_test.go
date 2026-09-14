@@ -119,62 +119,40 @@ const stateSucceeded = "succeeded"
 func TestM1SScreeningVerticalSliceAcceptance(t *testing.T) {
 	s := bootAcceptance(t)
 	snapshot := s.ingestSnapshot(t, "m1s-snapshot")
-	mixedPool := s.savePool(t, "m1s-mixed-pool", snapshot.ID, "m1s-pool-mixed", "INST_A", "INST_B")
-	singlePool := s.savePool(t, "m1s-single-pool", snapshot.ID, "m1s-pool-single", "INST_A")
+	pool := s.savePool(t, "m1s-pool", snapshot.ID, "m1s-pool", "INST_A", "INST_B")
 
-	fieldScreener := s.saveScreener(t, "m1s-cheap-pool", "m1s-screener-field", map[string]any{
-		"input_bindings": []map[string]any{
-			{"binding_id": "px", "kind": "field", "dataset": synthetic.DatasetBar, "field": "close"},
-		},
-		"condition_tree":  compareCondition("cheap", "px", "lt", "15"),
-		"ranking":         map[string]any{"mode": "sort", "fields": []map[string]any{{"input": map[string]any{"binding_id": "px"}, "direction": "desc"}}},
-		"selection":       map[string]any{"mode": "all"},
-		"display_columns": []string{"px"},
-	})
-	factorScreener := s.saveScreener(t, "m1s-cheap-momentum", "m1s-screener-factor", map[string]any{
-		"input_bindings": []map[string]any{
-			{"binding_id": "px", "kind": "field", "dataset": synthetic.DatasetBar, "field": "close"},
-			{"binding_id": "mom", "kind": "factor", "factor_ref": map[string]any{"id": "momentum", "version": "1.0.0"}, "params": map[string]any{"n": 1}},
-		},
-		"condition_tree": compareCondition("cheap", "px", "lt", "15"),
-		"ranking": map[string]any{
-			"mode":       "score",
-			"components": []map[string]any{{"input": map[string]any{"binding_id": "mom"}, "weight": "1", "direction": "larger_is_better"}},
-		},
-		"selection":       map[string]any{"mode": "all"},
-		"display_columns": []string{"px", "mom"},
-	})
+	// Two revisions over the same pool: one keeps the members it can rank, the
+	// other keeps the member it cannot. INST_B stops trading two days before the
+	// factor window starts (the window is derived from the pool's newest dates),
+	// so momentum has no value for it.
+	cheap := s.saveScreener(t, "m1s-cheap-momentum", "m1s-screener-cheap", factorScreenerBody("lt", "15", "cheap"))
+	expensive := s.saveScreener(t, "m1s-expensive-momentum", "m1s-screener-expensive", factorScreenerBody("gt", "15", "expensive"))
 
-	// 1. A pool whose members cannot all be computed at the decision time is
-	// reported before anything runs: the factor engine's window is pool-wide, and
-	// INST_B stops trading two days before it starts.
-	thin := s.runRequest(factorScreener, snapshot, mixedPool)
-	preflight := s.preflight(t, thin)
-	if preflight.Valid {
-		t.Fatalf("preflight = %+v, want invalid: INST_B has no points inside the factor window", preflight)
+	// 1. A member the factor engine cannot compute is a caveat, not a refusal:
+	// screening reports those members as a stage of its own, so preflight stays
+	// valid and names them.
+	runRequest := s.runRequest(cheap, snapshot, pool)
+	preflight := s.preflight(t, runRequest)
+	if !preflight.Valid {
+		t.Fatalf("preflight = %+v, want valid: a member's data shortfall is a stage, not a failure", preflight)
 	}
-	if !hasAcceptanceIssue(preflight.Issues, "insufficient_history", "error", "INST_B") {
-		t.Fatalf("issues = %+v, want an error-severity insufficient_history naming INST_B", preflight.Issues)
+	if !hasAcceptanceIssue(preflight.Issues, "insufficient_history", "warning", "INST_B") {
+		t.Fatalf("issues = %+v, want a warning-severity insufficient_history naming INST_B", preflight.Issues)
+	}
+	if hasAcceptanceIssue(preflight.Issues, "insufficient_history", "error", "") {
+		t.Fatalf("issues = %+v, want no error-severity finding for a member gap", preflight.Issues)
 	}
 	for _, coverage := range preflight.Coverage {
-		if coverage.BindingID == "mom" && (coverage.Available || coverage.Reason == nil || *coverage.Reason != "insufficient_history") {
-			t.Fatalf("coverage = %+v, want the factor binding unavailable with its reason", coverage)
+		if !coverage.Available {
+			t.Fatalf("coverage = %+v, want every binding available", coverage)
 		}
-	}
-
-	// 2. The field-only revision resolves over the same pool: everything the run
-	// needs is readable, so it is valid.
-	fieldRun := s.runRequest(fieldScreener, snapshot, mixedPool)
-	preflight = s.preflight(t, fieldRun)
-	if !preflight.Valid {
-		t.Fatalf("preflight = %+v, want valid for a field-only screener", preflight)
 	}
 	if preflight.EstimatedRows == nil || *preflight.EstimatedRows != 2 {
 		t.Fatalf("estimated_rows = %v, want the two pool members", preflight.EstimatedRows)
 	}
 
-	// 3. Submit it and read the published result.
-	first := s.submitScreenRun(t, fieldRun, "m1s-run-field")
+	// 2. Submit it: the run computes over the pool and publishes.
+	first := s.submitScreenRun(t, runRequest, "m1s-run-cheap")
 	if first.Summary == nil {
 		t.Fatal("published run has no summary")
 	}
@@ -200,22 +178,30 @@ func TestM1SScreeningVerticalSliceAcceptance(t *testing.T) {
 		t.Fatalf("run config = %+v, want the submitted decision time and zone", first.Config)
 	}
 
-	// 4. The rows are the frozen selection in official rank order.
+	// 3. The rows are the frozen selection in official rank order, with the
+	// factor's value and score in the display columns.
 	rows := s.screenRows(t, first.ID, "")
 	if len(rows.Items) != 2 {
 		t.Fatalf("rows = %+v, want both pool members", rows.Items)
 	}
-	if row := rows.Items[0]; row.InstrumentID != "INST_A" || !row.Selected || row.Rank == nil || *row.Rank != 1 {
-		t.Fatalf("first row = %+v, want INST_A selected with rank 1", rows.Items[0])
+	selected := rows.Items[0]
+	if selected.InstrumentID != "INST_A" || !selected.Selected || selected.Rank == nil || *selected.Rank != 1 {
+		t.Fatalf("first row = %+v, want INST_A selected with rank 1", selected)
 	}
-	if rows.Items[0].Values["px"].Value != "11.40" {
-		t.Fatalf("row values = %+v, want the last visible close", rows.Items[0].Values)
+	if selected.Score == nil || *selected.Score == "" {
+		t.Fatalf("first row = %+v, want the score of score-mode ranking", selected)
 	}
-	if row := rows.Items[1]; row.InstrumentID != "INST_B" || row.Selected || row.Rank != nil || row.Reason != "condition_false" {
+	if selected.Values["px"].Value != "11.40" {
+		t.Fatalf("row values = %+v, want the last visible close", selected.Values)
+	}
+	if selected.Values["mom"].Value == nil {
+		t.Fatalf("row values = %+v, want the factor value of a display column", selected.Values)
+	}
+	if excluded := rows.Items[1]; excluded.InstrumentID != "INST_B" || excluded.Selected || excluded.Rank != nil || excluded.Reason != "condition_false" {
 		t.Fatalf("second row = %+v, want INST_B excluded without a rank", rows.Items[1])
 	}
-	if len(rows.Columns) != 1 || rows.Columns[0].Name != "px" || rows.Columns[0].Type != "decimal" {
-		t.Fatalf("columns = %+v, want the display column described", rows.Columns)
+	if len(rows.Columns) != 2 || rows.Columns[0].Name != "px" || rows.Columns[0].Type != "decimal" {
+		t.Fatalf("columns = %+v, want both display columns described", rows.Columns)
 	}
 
 	// The state filter narrows the listing without touching the result.
@@ -226,33 +212,48 @@ func TestM1SScreeningVerticalSliceAcceptance(t *testing.T) {
 		t.Fatalf("excluded rows = %+v, want only INST_B", filtered.Items)
 	}
 
-	// 5. Explanations carry the frozen per-node evidence for both stages.
-	if explanation := s.screenExplanation(t, first.ID, "INST_A"); explanation.Stage != "selected" || explanation.Nodes.Truth != "true" {
+	// 4. Explanations carry the frozen evidence: the condition root and the score
+	// component that produced the rank.
+	explanation := s.screenExplanation(t, first.ID, "INST_A")
+	if explanation.Stage != "selected" || explanation.Nodes.Truth != "true" {
 		t.Fatalf("explanation = %+v, want a true root at the selected stage", explanation)
+	}
+	if len(explanation.Score) != 1 || explanation.Score[0].Weight != "1" || explanation.Score[0].Percentile == nil {
+		t.Fatalf("score evidence = %+v, want the declared weight and its percentile", explanation.Score)
+	}
+	// One rankable member is the documented m=1 case: the average-rank percentile
+	// is 0.5, never 0 or 1.
+	if *explanation.Score[0].Percentile != "0.5" {
+		t.Fatalf("percentile = %q, want the m=1 rule (0.5)", *explanation.Score[0].Percentile)
 	}
 	if explanation := s.screenExplanation(t, first.ID, "INST_B"); explanation.Stage != "condition_false" || explanation.Nodes.Truth != "false" {
 		t.Fatalf("explanation = %+v, want a false root for the excluded instrument", explanation)
 	}
 
-	// 6. Save the complete selection as a static pool, with its source evidence.
+	// 5. Save the complete selection as a static pool. The caveats the run was
+	// computed under travel with it: a member the factor could not compute is
+	// exactly the kind of limit a later reader has to know about.
 	code, _, raw := s.call(http.MethodPost, "/screen-runs/"+first.ID+"/universe", map[string]any{"name": "m1s-saved-pool"}, "m1s-save-pool")
 	if code != http.StatusCreated {
 		t.Fatalf("POST /screen-runs/{id}/universe: status %d body %s", code, raw)
 	}
-	pool := decodeBody[acceptanceUniverse](t, "saved pool", raw)
-	if pool.Definition.Kind != "static" || len(pool.Definition.Members) != 1 || pool.Definition.Members[0] != "INST_A" {
-		t.Fatalf("pool = %+v, want exactly the run's selection", pool.Definition)
+	saved := decodeBody[acceptanceUniverse](t, "saved pool", raw)
+	if saved.Definition.Kind != "static" || len(saved.Definition.Members) != 1 || saved.Definition.Members[0] != "INST_A" {
+		t.Fatalf("pool = %+v, want exactly the run's selection", saved.Definition)
 	}
-	if pool.DefinitionHash == "" || pool.SnapshotID != snapshot.ID {
-		t.Fatalf("pool = %+v, want the run's snapshot and its definition hash", pool)
+	if saved.DefinitionHash == "" || saved.SnapshotID != snapshot.ID {
+		t.Fatalf("pool = %+v, want the run's snapshot and its definition hash", saved)
 	}
-	if pool.Source == nil || pool.Source.ScreenRunID != first.ID || pool.Source.SnapshotHash != snapshot.ManifestHash {
-		t.Fatalf("pool source = %+v, want the run and the data hash it selected against", pool.Source)
+	if saved.Source == nil || saved.Source.ScreenRunID != first.ID || saved.Source.SnapshotHash != snapshot.ManifestHash {
+		t.Fatalf("pool source = %+v, want the run and the data hash it selected against", saved.Source)
+	}
+	if !containsString(saved.Source.QualityLimits, "insufficient_history") {
+		t.Fatalf("pool quality limits = %v, want the run's caveat carried forward", saved.Source.QualityLimits)
 	}
 
-	// 7. Resubmitting the same frozen inputs publishes a second run with the same
+	// 6. Resubmitting the same frozen inputs publishes a second run with the same
 	// selection — a new revision, never an overwrite of the first.
-	second := s.submitScreenRun(t, fieldRun, "m1s-run-field-again")
+	second := s.submitScreenRun(t, runRequest, "m1s-run-cheap-again")
 	if second.ID == first.ID {
 		t.Fatal("a second submission must create a new run, not republish the first")
 	}
@@ -273,35 +274,63 @@ func TestM1SScreeningVerticalSliceAcceptance(t *testing.T) {
 		t.Fatalf("first run = %+v, want its published summary unchanged", reloaded.Summary)
 	}
 
-	// 8. A factor binding works end to end once the pool can be computed: the
-	// single-member pool gives the momentum window two points, so the score-mode
-	// ranking produces a rank and a score component.
-	factorRun := s.runRequest(factorScreener, snapshot, singlePool)
-	if preflight := s.preflight(t, factorRun); !preflight.Valid {
-		t.Fatalf("preflight = %+v, want valid for a computable pool", preflight)
+	// 7. The same pool where only the uncomputable member passes the condition:
+	// the run publishes an explained empty result instead of failing, and the
+	// pool cannot be saved from it.
+	emptyRun := s.submitScreenRun(t, s.runRequest(expensive, snapshot, pool), "m1s-run-expensive")
+	if emptyRun.Summary == nil {
+		t.Fatal("the empty run has no summary")
 	}
-	scored := s.submitScreenRun(t, factorRun, "m1s-run-factor")
-	if scored.Summary == nil || scored.Summary.Selected != 1 || scored.Summary.Population != 1 {
-		t.Fatalf("summary = %+v, want the single member selected", scored.Summary)
+	empty := *emptyRun.Summary
+	if empty.Population != 2 || empty.ConditionTrue != 1 || empty.RankInsufficient != 1 || empty.Rankable != 0 || empty.Selected != 0 {
+		t.Fatalf("summary = %+v, want the condition-true member reported as rank-insufficient", empty)
 	}
-	scoredRows := s.screenRows(t, scored.ID, "")
-	if len(scoredRows.Items) != 1 {
-		t.Fatalf("rows = %+v, want the single member", scoredRows.Items)
+	if empty.EmptyReason == nil || *empty.EmptyReason != "no_rankable_instruments" {
+		t.Fatalf("empty_reason = %v, want the stage that emptied the selection", empty.EmptyReason)
 	}
-	if scoredRows.Items[0].Score == nil || *scoredRows.Items[0].Score == "" {
-		t.Fatalf("row = %+v, want the score of score-mode ranking", scoredRows.Items[0])
+	emptyRows := s.screenRows(t, emptyRun.ID, "")
+	if len(emptyRows.Items) != 2 {
+		t.Fatalf("rows = %+v, want both pool members", emptyRows.Items)
 	}
-	if scoredRows.Items[0].Values["mom"].Value == nil {
-		t.Fatalf("row values = %+v, want the factor value of the display column", scoredRows.Items[0].Values)
+	// Excluded rows come last, ordered by instrument id: INST_A failed the
+	// condition, INST_B passed it but carries no factor value to rank by.
+	var unrankable *acceptanceScreenRow
+	for i := range emptyRows.Items {
+		if emptyRows.Items[i].InstrumentID == "INST_B" {
+			unrankable = &emptyRows.Items[i]
+		}
 	}
-	explanation := s.screenExplanation(t, scored.ID, "INST_A")
-	if len(explanation.Score) != 1 || explanation.Score[0].Weight != "1" || explanation.Score[0].Percentile == nil {
-		t.Fatalf("score evidence = %+v, want the declared weight and its percentile", explanation.Score)
+	if unrankable == nil || unrankable.Reason != "rank_insufficient" || unrankable.Rank != nil || unrankable.Selected {
+		t.Fatalf("rows = %+v, want INST_B staged as rank-insufficient without a rank", emptyRows.Items)
 	}
-	// One rankable member is the documented m=1 case: the average-rank percentile
-	// is 0.5, never 0 or 1.
-	if *explanation.Score[0].Percentile != "0.5" {
-		t.Fatalf("percentile = %q, want the m=1 rule (0.5)", *explanation.Score[0].Percentile)
+	if unrankable.Values["mom"].MissingReason == nil {
+		t.Fatalf("row values = %+v, want the missing factor value to carry its reason", unrankable.Values)
+	}
+	code, _, raw = s.call(http.MethodPost, "/screen-runs/"+emptyRun.ID+"/universe", map[string]any{"name": "m1s-empty-pool"}, "m1s-empty-pool")
+	if code != http.StatusUnprocessableEntity {
+		t.Fatalf("saving a pool from an empty selection: status %d, want 422 (body %s)", code, raw)
+	}
+	if env := decodeBody[acceptanceWireError](t, "empty selection error", raw); env.Code != "screenrun.empty_selection" {
+		t.Fatalf("error code = %q, want screenrun.empty_selection", env.Code)
+	}
+}
+
+// factorScreenerBody is one revision over a pool-and-factor binding: a field
+// condition on the close, a score-mode ranking on the factor, and both columns
+// displayed.
+func factorScreenerBody(operator, threshold, nodeID string) map[string]any {
+	return map[string]any{
+		"input_bindings": []map[string]any{
+			{"binding_id": "px", "kind": "field", "dataset": synthetic.DatasetBar, "field": "close"},
+			{"binding_id": "mom", "kind": "factor", "factor_ref": map[string]any{"id": "momentum", "version": "1.0.0"}, "params": map[string]any{"n": 1}},
+		},
+		"condition_tree": compareCondition(nodeID, "px", operator, threshold),
+		"ranking": map[string]any{
+			"mode":       "score",
+			"components": []map[string]any{{"input": map[string]any{"binding_id": "mom"}, "weight": "1", "direction": "larger_is_better"}},
+		},
+		"selection":       map[string]any{"mode": "all"},
+		"display_columns": []string{"px", "mom"},
 	}
 }
 

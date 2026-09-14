@@ -265,6 +265,9 @@ type CacheKeyRequest struct {
 	Params             map[string]any
 	Range              domain.Interval
 	AvailabilityPolicy string
+	// TolerateMemberGaps is part of the identity because it decides whether an
+	// uncomputable member is a failure or a missing value.
+	TolerateMemberGaps bool
 }
 
 // cacheKeyPayload is the digested shape. Params is a map, so encoding
@@ -280,6 +283,7 @@ type cacheKeyPayload struct {
 	From               string         `json:"from"`
 	To                 string         `json:"to"`
 	AvailabilityPolicy string         `json:"availability_policy"`
+	TolerateMemberGaps bool           `json:"tolerate_member_gaps"`
 }
 
 // CacheKey digests one run's identity. Parameters are canonicalized
@@ -318,6 +322,7 @@ func (r *Registry) CacheKey(req CacheKeyRequest) (string, error) {
 		From:               req.Range.From.UTC().Format(time.RFC3339Nano),
 		To:                 req.Range.To.UTC().Format(time.RFC3339Nano),
 		AvailabilityPolicy: req.AvailabilityPolicy,
+		TolerateMemberGaps: req.TolerateMemberGaps,
 	}
 	encoded, err := json.Marshal(payload)
 	if err != nil {

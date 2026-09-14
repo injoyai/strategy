@@ -40,6 +40,20 @@ type RunRequest struct {
 	UniverseHash       string
 	SnapshotHash       string
 	AvailabilityPolicy string
+	// TolerateMemberGaps accepts members that cannot be computed at this decision
+	// time: instead of failing the run, they carry a missing reason in the frame.
+	// Screening uses it because the members it cannot rank are a stage it already
+	// reports; a factor run or an analysis keeps the strict default, where a
+	// member the engine cannot compute is a problem the caller must fix.
+	TolerateMemberGaps bool
+}
+
+// Tolerates reports whether this request accepts one preflight finding instead of
+// failing on it. Callers that classify findings themselves must ask the request,
+// not a fixed list, so what a tolerant run actually ignores has exactly one
+// definition.
+func (r RunRequest) Tolerates(code string) bool {
+	return r.TolerateMemberGaps && code == ProblemInsufficientHistory
 }
 
 // Preflight checks a request without computing: graph closure, parameter

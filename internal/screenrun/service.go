@@ -497,7 +497,7 @@ func (s *Service) checkFactorBinding(
 	if err != nil {
 		return bindingResult{}, err
 	}
-	problems, err := engine.Preflight(ctx, factor.RunRequest{
+	engineReq := factor.RunRequest{
 		Ref:                ref,
 		Params:             params,
 		Members:            members,
@@ -506,23 +506,41 @@ func (s *Service) checkFactorBinding(
 		UniverseHash:       universe.DefinitionHash,
 		SnapshotHash:       snapshot.ManifestHash,
 		AvailabilityPolicy: factor.AvailabilityPolicyAvailableAt,
-	})
+		// Screening reports the members it cannot rank as a stage of its own, so a
+		// member the factor engine cannot compute at this decision time is a
+		// caveat rather than a refusal. What the engine tolerates is asked of the
+		// request itself, so the two sides cannot drift apart.
+		TolerateMemberGaps: true,
+	}
+	problems, err := engine.Preflight(ctx, engineReq)
 	if err != nil {
 		return bindingResult{}, err
 	}
 	if len(problems) > 0 {
-		bindingIssues := make([]domain.Issue, 0, len(problems))
+		var blocking, caveats []domain.Issue
 		for _, problem := range problems {
-			bindingIssues = append(bindingIssues, issueFor(binding.BindingID, problem.Code, problem.Message))
+			issue := issueFor(binding.BindingID, problem.Code, problem.Message)
+			if engineReq.Tolerates(problem.Code) {
+				issue.Severity = domain.SeverityWarning
+				caveats = append(caveats, issue)
+				continue
+			}
+			blocking = append(blocking, issue)
 		}
-		// Every engine problem blocks the binding, including a per-member data
-		// shortfall: the factor engine refuses to compute when any requested
-		// member cannot be, so a run that accepted the finding would fail later
-		// with a less actionable message. The message names the members, which is
-		// what an operator needs to widen the window or narrow the pool.
+		if len(blocking) > 0 {
+			return bindingResult{
+				coverage: unavailable(binding.BindingID, blocking[0].Code),
+				issues:   append(blocking, caveats...),
+				dates:    dates,
+			}, nil
+		}
+		// The binding resolves and carries caveats: the run proceeds and the
+		// members named by the caveats land in the stages the screening engine
+		// already reports (rank_insufficient, or condition_unknown).
 		return bindingResult{
-			coverage: unavailable(binding.BindingID, problems[0].Code),
-			issues:   bindingIssues,
+			coverage: Coverage{BindingID: binding.BindingID, Available: true},
+			issues:   caveats,
+			window:   windowFrom,
 			dates:    dates,
 		}, nil
 	}
@@ -663,6 +681,9 @@ func (s *Service) runFactorBinding(ctx context.Context, res *resolved, binding s
 		UniverseHash:       res.universe.DefinitionHash,
 		SnapshotHash:       res.snapshot.ManifestHash,
 		AvailabilityPolicy: factor.AvailabilityPolicyAvailableAt,
+		// The same mode the binding's preflight used: the two must agree or a run
+		// could be accepted and then fail at compute time.
+		TolerateMemberGaps: true,
 	})
 }
 

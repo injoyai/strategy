@@ -231,7 +231,19 @@ func (e *Engine) Run(ctx context.Context, req RunRequest) (*Frame, error) {
 		loaded[spec.Inputs[i].Name] = perMember
 	}
 	if len(problems) > 0 {
-		return nil, preflightError(problems)
+		// A tolerant request accepts a member's data shortfall, so those members
+		// become missing values in the frame; every other finding still fails the
+		// run.
+		var fatal []Problem
+		for _, problem := range problems {
+			if req.Tolerates(problem.Code) {
+				continue
+			}
+			fatal = append(fatal, problem)
+		}
+		if len(fatal) > 0 {
+			return nil, preflightError(fatal)
+		}
 	}
 
 	key, err := e.registry.CacheKey(CacheKeyRequest{
@@ -242,6 +254,9 @@ func (e *Engine) Run(ctx context.Context, req RunRequest) (*Frame, error) {
 		Params:             params,
 		Range:              req.Range,
 		AvailabilityPolicy: req.AvailabilityPolicy,
+		// A tolerant frame carries missing members a strict caller would have
+		// refused, so the two modes must never share a cache entry.
+		TolerateMemberGaps: req.TolerateMemberGaps,
 	})
 	if err != nil {
 		return nil, err
