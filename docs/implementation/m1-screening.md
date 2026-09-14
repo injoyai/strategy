@@ -142,7 +142,9 @@ OR:  任一 true => true；全 false => false；其他 => unknown
 - `Execute` 在有 error 级 finding 时拒绝计算（`screenrun.preflight_failed` → 422），因此不会发布“看起来权威”的结果。
 - 提交（`POST /screen-runs`）重新预检，24h 幂等键必填，202 + `Location: /api/v1/jobs/{job_id}`；`screenrun.Request` 是唯一的冻结输入形状（`FrozenConfigOf` / `RequestOfFrozen`）。
 - **单位可比性已交付**（SC-AC-01 的单位那半）：因子契约声明每个输入的 unit，数据集目录声明字段实际存储的 unit，`checkFactorInputUnits` 按**相等**比较（与表达式单位检查同规则），不一致 → `screenrun.unit_mismatch`，从未声明 → `screenrun.unit_undeclared`（未声明不等于兼容：无法核验就必须阻断），数据集/字段不存在 → `screenrun.dataset_unknown` / `screenrun.field_unknown`；全部 error 级，因此预检 `valid=false`、提交 422、运行拒绝计算。条件字面量不带单位（与表达式一致：无单位一侧继承另一侧），所以条件层没有单位可比性可查。
-- 未完成：**数据集声明的频率无法核对**——`domain.Dataset` 不暴露 frequency（同一 dataset 名的多个 batch 可以声明不同频率），要让预检比对因子 `Input.Frequency` 需要先决定“同名多频率”如何表达；预检也不预演评分分位，故 `estimated_rows` 只是母池规模。
+- 未完成：**数据集声明的频率无法核对**——`domain.Dataset` 不暴露 frequency（同一 dataset 名的多个 batch 可以声明不同频率），要让预检比对因子 `Input.Frequency` 需要先决定“同名多频率”如何表达。
+- 预检量的口径：`estimated_rows` = 母池成员数（只有池解析成功就有值，字段-only 方案也有），`estimated_scan_rows` = 成员数 × 推导出的窗口内日期数，**只在存在因子窗口时有值**（字段绑定读的是各成员最新值，不构成日期窗口扫描，不臆造估算）。预检不预演评分分位。
+- **已知约束（与因子引擎契约相关，待决策）**：因子引擎要求“请求里的每个成员都必须可计算”，因此池中存在样本不足的成员（例如窗口内点数不够）会让整次运行在预检即失败（error 级 `insufficient_history`，消息点名成员）。而屏幕阶段本来有 `rank_insufficient` / `condition_unknown` 来承载“该成员算不出来”。真实池几乎必然包含此类成员，是否让选股在“部分成员不可计算”时继续（把这些人当缺失值→进入相应阶段），需要与 M1-07 因子引擎的语义一起决策（见 `internal/server/m1s_acceptance_test.go` 第 1 段的反例证据）。
 
 ### S2-02 元数据与结果
 
@@ -211,7 +213,7 @@ Summary 计数互斥且守恒：
 | S1-02 | 输入能力目录 | field/factor schema、Snapshot 不可用说明 |
 | S1-03 | 条件树、三值逻辑与解释 | 真值表、类型/单位、unknown/NOT 属性测试（`internal/screening/truth_test.go` 的 Kleene 表、SC-AC-02 负小数比较、范围/集合全覆盖） |
 | S1-04 | 稳定排序、百分位评分与 top_n | 单元素/同值/分片/分页 oracle（`ranking_test.go` 的 m=1/全等→0.5、平局平均秩、shuffle oracle；`engine_test.go` 守恒/fail_run/空因） |
-| S2-01 | Preflight、Engine 与 Job handler | PIT、空母池、取消/恢复/fencing（已交付：`/screen-runs/preflight` 与 `POST /screen-runs`(202+Job+幂等键)、`internal/screenrun` 的解析/绑定/coverage 与 `Execute`、数据驱动的因子窗口推导、**因子输入单位比对**（`unit_mismatch`/`unit_undeclared`，见 `internal/screenrun/units_test.go`）、`screenrun.Handlers` 的 `screen.run` job kind（`internal/screenrun/handler_test.go` 走真实 jobs.Loop））；未完成：数据集声明频率的核对 |
+| S2-01 | Preflight、Engine 与 Job handler | PIT、空母池、取消/恢复/fencing（已交付：`/screen-runs/preflight` 与 `POST /screen-runs`(202+Job+幂等键)、`internal/screenrun` 的解析/绑定/coverage 与 `Execute`、数据驱动的因子窗口推导、**因子输入单位比对**（`unit_mismatch`/`unit_undeclared`，见 `internal/screenrun/units_test.go`）、`screenrun.Handlers` 的 `screen.run` job kind；**纵向验收** `internal/server/m1s_acceptance_test.go` 走真实 provider→快照→池→方案→预检→运行→结果/解释→保存池，并断言重跑一致与薄数据阻断）；未完成：数据集声明频率的核对、以及“部分成员不可计算时是否继续运行”的决策 |
 | S2-02 | 版本/Run/结果存储与查询 | 迁移、原子发布、Summary 守恒、游标（已交付：`screener_versions` + `/screeners` CRUD + `GET /screeners/{id}?version=`，以及 `00009_screen_runs.sql`、`/screen-runs` 清单/详情/rows/explanations、发布前 409 `screenrun.result_not_ready`、scope 绑定的行游标、守恒在发布事务内复核） |
 | S2-03 | 静态池与导出 | 来源时点、完整 scope、许可与 CSV 安全（静态池已交付：`POST /screen-runs/{id}/universe` 只收 name、服务端读完整入选集、空入选 422 `screenrun.empty_selection`、`Universe.source` 携带 run/as_of/snapshot hash/quality limits 且不进 definition_hash）；未交付：`/screen-runs/{id}/exports` 与 S4 的时点拒绝判定 |
 | S3 | 四个页面的完整路径 | 成功/失败/断线/键盘/窄视口 |
