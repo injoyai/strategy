@@ -5,12 +5,16 @@ import { ConnectionsPage } from "./pages/ConnectionsPage";
 import { DataPage } from "./pages/DataPage";
 import { FactorsPage } from "./pages/FactorsPage";
 import { JobsPage } from "./pages/JobsPage";
+import { ScreenRunPage } from "./pages/ScreenRunPage";
+import { ScreenerDetailPage } from "./pages/ScreenerDetailPage";
+import { ScreenerEditorPage, ScreenersPage } from "./pages/ScreenersPage";
 import { UniversesPage } from "./pages/UniversesPage";
 
 const navItems = [
   { to: "/data", label: "数据中心", glyph: "◫", section: "研究输入" },
   { to: "/universes", label: "标的池", glyph: "⊞", section: "研究输入" },
   { to: "/factors", label: "因子库", glyph: "∿", section: "研究输入" },
+  { to: "/screeners", label: "选股方案", glyph: "⌗", section: "选股" },
   { to: "/connections", label: "数据源", glyph: "⌁", section: "研究输入" },
   { to: "/jobs", label: "任务中心", glyph: "◌", section: "运行状态" },
 ];
@@ -24,6 +28,9 @@ const titles: Record<string, string> = {
   "/data": "数据中心",
   "/universes": "标的池",
   "/factors": "因子库",
+  "/screeners": "选股方案",
+  "/screeners/new": "新建选股方案",
+  "/screen-runs": "选股运行",
   "/connections": "数据源",
   "/jobs": "任务中心",
 };
@@ -84,6 +91,10 @@ export function AppShell() {
               <Route path="/universes" element={<UniversesPage />} />
               <Route path="/factors" element={<FactorsPage />} />
               <Route path="/factors/:id" element={<FactorsPage />} />
+              <Route path="/screeners" element={<ScreenersPage />} />
+              <Route path="/screeners/new" element={<ScreenerEditorPage />} />
+              <Route path="/screeners/:id" element={<ScreenerDetailPage />} />
+              <Route path="/screen-runs/:id" element={<ScreenRunPage />} />
               <Route path="/connections" element={<ConnectionsPage />} />
               <Route path="/jobs" element={<JobsPage />} />
               <Route path="*" element={<NotFoundPage />} />

@@ -211,14 +211,23 @@ export function LoadMore({ hasMore, loading, onClick }: { hasMore: boolean; load
   );
 }
 
+/**
+ * Formats a server timestamp for display. The time zone is named explicitly
+ * because a decision time without its zone is not an answer; the component
+ * options are spelled out rather than using dateStyle/timeStyle, which the
+ * spec (and V8) refuse to combine with timeZoneName.
+ */
 export function formatDateTime(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
     return value;
   }
   return new Intl.DateTimeFormat("zh-CN", {
-    dateStyle: "medium",
-    timeStyle: "short",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
     timeZoneName: "short",
   }).format(date);
 }
