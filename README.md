@@ -7,6 +7,9 @@ Go 后端、可视化研究工作台。当前处于 M0（契约与工程基础�
 环境要求：Go ≥ 1.26、Node.js ≥ 20、Python 3（仅标准库，用于契约生成检查）。
 
 ```powershell
+# 同时启动后端与前端（在 Git Bash / Bash 中执行，Ctrl+C 一并停止）
+bash scripts/run.sh
+
 # 运行服务（默认绑定 127.0.0.1:8080，local 认证，SQLite 位于 data/metadata.db）
 go run ./cmd/researchd
 go run ./cmd/researchd -config configs/researchd.dev.json
@@ -21,6 +24,8 @@ curl http://127.0.0.1:8080/readyz
 # 前端开发（Vite dev server 代理 /api 到 127.0.0.1:8080）
 cd web; npm install; npm run dev
 ```
+
+运行脚本也支持 `--backend-only`、`--frontend-only` 和 `--config <path>`；前后端同时启动时，配置中的后端地址应保持为 Vite 代理使用的 `127.0.0.1:8080`。
 
 配置优先级：内置默认 → JSON 文件（`-config` 或 `RESEARCHD_CONFIG`）→ `RESEARCHD_*` 环境变量。可用字段见 [configs/researchd.dev.json](configs/researchd.dev.json) 与 [internal/config](internal/config/config.go)；错误信息会指出字段名与来源。
 
