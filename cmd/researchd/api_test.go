@@ -118,6 +118,22 @@ func TestNewAPIFactorCatalogIsNotEmpty(t *testing.T) {
 	}
 }
 
+// TestNewAPIScreenRunPreflightIsMounted proves the POST-only screening surface
+// is reachable: an unmounted service answers the contract's not-found envelope,
+// while a mounted one rejects an empty body as a malformed request.
+func TestNewAPIScreenRunPreflightIsMounted(t *testing.T) {
+	h := newTestHandler(t)
+	rec := do(t, h, http.MethodPost, "/api/v1/screen-runs/preflight", map[string]string{
+		"Content-Type": "application/json",
+	}, []byte(`{}`))
+	if rec.Code == http.StatusNotFound {
+		t.Fatalf("POST /api/v1/screen-runs/preflight = 404: the screening run service is not mounted")
+	}
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("empty preflight body = %d, want 400 (body: %s)", rec.Code, rec.Body.String())
+	}
+}
+
 // TestNewAPIAcceptsScreenerCreate proves the store-backed write path is
 // reachable end to end from this assembly, not just listed.
 func TestNewAPIAcceptsScreenerCreate(t *testing.T) {

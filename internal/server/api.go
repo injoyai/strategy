@@ -13,6 +13,7 @@ import (
 	"github.com/injoyai/strategy/internal/jobs"
 	"github.com/injoyai/strategy/internal/ports"
 	"github.com/injoyai/strategy/internal/research"
+	"github.com/injoyai/strategy/internal/screenrun"
 )
 
 // apiPrefix is the mount point of every route registered through Handle.
@@ -39,6 +40,9 @@ type Options struct {
 	// Research, when set, mounts the M1-09 research surface: universes,
 	// the factor catalog, synchronous factor runs and factor analyses.
 	Research *research.Service
+
+	// ScreenRuns, when set, mounts the M1S screening-run surface.
+	ScreenRuns *screenrun.Service
 }
 
 // API is the contract surface served under /api/v1.
@@ -58,6 +62,8 @@ type API struct {
 
 	artifacts *artifacts.Store
 	research  *research.Service
+
+	screenRuns *screenrun.Service
 }
 
 // NewAPI builds the API with defaults for omitted dependencies.
@@ -95,6 +101,7 @@ func NewAPI(opts Options) *API {
 		data:         opts.Data,
 		artifacts:    opts.Artifacts,
 		research:     opts.Research,
+		screenRuns:   opts.ScreenRuns,
 		providers:    providers,
 		factories:    factories,
 		mux:          http.NewServeMux(),
@@ -114,6 +121,9 @@ func NewAPI(opts Options) *API {
 	if opts.Research != nil {
 		api.RegisterUniverses()
 		api.RegisterFactors()
+	}
+	if opts.ScreenRuns != nil {
+		api.RegisterScreenRuns()
 	}
 	return api
 }

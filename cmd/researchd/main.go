@@ -32,6 +32,7 @@ import (
 	"github.com/injoyai/strategy/internal/pipeline"
 	"github.com/injoyai/strategy/internal/ports"
 	"github.com/injoyai/strategy/internal/research"
+	"github.com/injoyai/strategy/internal/screenrun"
 	"github.com/injoyai/strategy/internal/server"
 	"github.com/injoyai/strategy/internal/store"
 	"github.com/injoyai/strategy/internal/synthetic"
@@ -69,6 +70,10 @@ func newAPI(
 	if err != nil {
 		return nil, fmt.Errorf("build research service: %w", err)
 	}
+	screenRuns, err := screenrun.New(dataStore, registry)
+	if err != nil {
+		return nil, fmt.Errorf("build screening run service: %w", err)
+	}
 	return server.NewAPI(server.Options{
 		Log:         log,
 		Auth:        auth,
@@ -77,6 +82,7 @@ func newAPI(
 		Data:        dataStore,
 		Artifacts:   art,
 		Research:    researchService,
+		ScreenRuns:  screenRuns,
 		Providers:   providers,
 	}), nil
 }
