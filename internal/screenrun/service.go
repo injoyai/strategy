@@ -238,6 +238,15 @@ func (s *Service) resolve(ctx context.Context, req Request) (*resolved, error) {
 	if err != nil {
 		return nil, err
 	}
+	// source_run_id is provenance the caller asserts about this run's origin, and
+	// a published run reads back as evidence, so the origin must actually exist
+	// in this workspace. Unknown references are not evaluable, hence a request
+	// error rather than a finding.
+	if req.SourceRunID != "" {
+		if _, err := s.data.GetScreenRun(ctx, req.SourceRunID); err != nil {
+			return nil, err
+		}
+	}
 	universe, err := s.data.GetUniverseVersion(ctx, req.UniverseRef.ID)
 	if err != nil {
 		return nil, err

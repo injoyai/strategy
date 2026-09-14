@@ -32,6 +32,7 @@ type acceptanceScreenRun struct {
 		AsOf                string `json:"as_of"`
 		DecisionTimezone    string `json:"decision_timezone"`
 		RequiredValuePolicy string `json:"required_value_policy"`
+		SourceRunID         string `json:"source_run_id"`
 	} `json:"config"`
 	EngineVersion        string `json:"engine_version"`
 	ScoringPolicyVersion string `json:"scoring_policy_version"`
@@ -333,6 +334,25 @@ func TestM1SScreeningVerticalSliceAcceptance(t *testing.T) {
 	}
 	if env := decodeBody[acceptanceWireError](t, "early run error", raw); env.Code != screenrun.CodePreflightFailed {
 		t.Fatalf("error code = %q, want %s", env.Code, screenrun.CodePreflightFailed)
+	}
+
+	// 9. A re-run records the run it came from, and that origin has to exist: the
+	// reference is published as evidence, so a run pointing at an unknown run
+	// would read back as a fact nobody can check.
+	rerunFrom := s.runRequest(cheap, snapshot, pool)
+	rerunFrom["source_run_id"] = first.ID
+	rerun := s.submitScreenRun(t, rerunFrom, "m1s-run-rerun")
+	if rerun.Config.SourceRunID != first.ID {
+		t.Fatalf("run config = %+v, want the origin run recorded", rerun.Config)
+	}
+	unknownOrigin := s.runRequest(cheap, snapshot, pool)
+	unknownOrigin["source_run_id"] = "srun_unknown"
+	code, _, raw = s.call(http.MethodPost, "/screen-runs", unknownOrigin, "m1s-run-unknown-origin")
+	if code != http.StatusNotFound {
+		t.Fatalf("submitting a run with an unknown origin: status %d, want 404 (body %s)", code, raw)
+	}
+	if env := decodeBody[acceptanceWireError](t, "unknown origin error", raw); env.Code != "resource.not_found" {
+		t.Fatalf("error code = %q, want resource.not_found", env.Code)
 	}
 }
 
