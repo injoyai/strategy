@@ -249,6 +249,13 @@ func (s *Store) PublishScreenRun(ctx context.Context, runID domain.ID, req scree
 			return domain.NewError(domain.CodeInternalError,
 				"data: screening run result lists instrument %s twice", row.InstrumentID)
 		}
+		// The explanation endpoint reports one condition root per row, so a row
+		// without exactly one root would publish evidence that cannot be read
+		// back.
+		if len(row.Nodes) != 1 {
+			return domain.NewError(domain.CodeInternalError,
+				"data: screening run row %s carries %d condition roots, want exactly one", row.InstrumentID, len(row.Nodes))
+		}
 		seen[row.InstrumentID] = struct{}{}
 	}
 	summaryJSON, err := marshalJSON(req.Summary)

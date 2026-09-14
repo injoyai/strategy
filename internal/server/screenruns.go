@@ -534,7 +534,7 @@ type screenExplanationWire struct {
 	RunID        string                    `json:"run_id"`
 	InstrumentID string                    `json:"instrument_id"`
 	Stage        string                    `json:"stage"`
-	Nodes        []screenNodeWire          `json:"nodes"`
+	Nodes        screenNodeWire            `json:"nodes"`
 	Score        []screening.ScoreEvidence `json:"score"`
 }
 
@@ -558,11 +558,19 @@ func (a *API) getScreenExplanation(w http.ResponseWriter, r *http.Request) {
 		a.writeError(w, r, err)
 		return
 	}
+	if len(row.Nodes) != 1 {
+		// Publish guarantees one condition root per row; anything else is
+		// corrupted evidence, and reporting a fabricated root would be worse
+		// than reporting the fault.
+		a.writeError(w, r, domain.NewError(domain.CodeInternalError,
+			"run %s row %s does not carry a single condition root", record.ID, instrumentID))
+		return
+	}
 	out := screenExplanationWire{
 		RunID:        record.ID.String(),
 		InstrumentID: row.InstrumentID.String(),
 		Stage:        string(row.Stage),
-		Nodes:        screenNodeWires(row.Nodes),
+		Nodes:        screenNodeWireOf(row.Nodes[0]),
 		Score:        row.ScoreDetail,
 	}
 	if out.Score == nil {
@@ -571,23 +579,27 @@ func (a *API) getScreenExplanation(w http.ResponseWriter, r *http.Request) {
 	WriteJSON(w, http.StatusOK, out)
 }
 
+func screenNodeWireOf(node screening.NodeEvaluation) screenNodeWire {
+	wire := screenNodeWire{
+		NodeID:    node.NodeID.String(),
+		Truth:     string(node.Truth),
+		Threshold: node.Threshold,
+		Children:  screenNodeWires(node.Children),
+	}
+	if node.Input != nil {
+		wire.Input = &screenInputWire{BindingID: node.Input.BindingID.String()}
+	}
+	if node.MissingReason != "" {
+		reason := node.MissingReason
+		wire.MissingReason = &reason
+	}
+	return wire
+}
+
 func screenNodeWires(nodes []screening.NodeEvaluation) []screenNodeWire {
 	out := make([]screenNodeWire, 0, len(nodes))
 	for _, node := range nodes {
-		wire := screenNodeWire{
-			NodeID:    node.NodeID.String(),
-			Truth:     string(node.Truth),
-			Threshold: node.Threshold,
-			Children:  screenNodeWires(node.Children),
-		}
-		if node.Input != nil {
-			wire.Input = &screenInputWire{BindingID: node.Input.BindingID.String()}
-		}
-		if node.MissingReason != "" {
-			reason := node.MissingReason
-			wire.MissingReason = &reason
-		}
-		out = append(out, wire)
+		out = append(out, screenNodeWireOf(node))
 	}
 	return out
 }

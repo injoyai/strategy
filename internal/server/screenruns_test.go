@@ -737,7 +737,7 @@ func TestScreenRunReadSurfaceServesThePublishedResult(t *testing.T) {
 	}
 	var evidence struct {
 		Stage string `json:"stage"`
-		Nodes []struct {
+		Nodes struct {
 			NodeID string `json:"node_id"`
 			Truth  string `json:"truth"`
 			Input  *struct {
@@ -752,7 +752,7 @@ func TestScreenRunReadSurfaceServesThePublishedResult(t *testing.T) {
 	if evidence.Stage != string(screening.StageConditionFalse) {
 		t.Fatalf("stage = %q, want the exclusion stage", evidence.Stage)
 	}
-	if len(evidence.Nodes) != 1 || evidence.Nodes[0].Truth != string(screening.TruthFalse) || evidence.Nodes[0].Input == nil {
+	if evidence.Nodes.Truth != string(screening.TruthFalse) || evidence.Nodes.Input == nil {
 		t.Fatalf("nodes = %+v, want the frozen condition evidence", evidence.Nodes)
 	}
 	if evidence.Score == nil || len(evidence.Score) != 0 {
