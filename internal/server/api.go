@@ -12,6 +12,7 @@ import (
 	"github.com/injoyai/strategy/internal/domain"
 	"github.com/injoyai/strategy/internal/jobs"
 	"github.com/injoyai/strategy/internal/ports"
+	"github.com/injoyai/strategy/internal/research"
 )
 
 // apiPrefix is the mount point of every route registered through Handle.
@@ -34,6 +35,10 @@ type Options struct {
 
 	// Artifacts, when set, mounts the /imports and /artifacts surface.
 	Artifacts *artifacts.Store
+
+	// Research, when set, mounts the M1-09 research surface: universes,
+	// the factor catalog, synchronous factor runs and factor analyses.
+	Research *research.Service
 }
 
 // API is the contract surface served under /api/v1.
@@ -52,6 +57,7 @@ type API struct {
 	factories map[domain.ID]ports.ProviderFactory
 
 	artifacts *artifacts.Store
+	research  *research.Service
 }
 
 // NewAPI builds the API with defaults for omitted dependencies.
@@ -88,6 +94,7 @@ func NewAPI(opts Options) *API {
 		jobs:         opts.Jobs,
 		data:         opts.Data,
 		artifacts:    opts.Artifacts,
+		research:     opts.Research,
 		providers:    providers,
 		factories:    factories,
 		mux:          http.NewServeMux(),
@@ -100,6 +107,10 @@ func NewAPI(opts Options) *API {
 	}
 	if opts.Artifacts != nil {
 		api.RegisterImports()
+	}
+	if opts.Research != nil {
+		api.RegisterUniverses()
+		api.RegisterFactors()
 	}
 	return api
 }

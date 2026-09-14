@@ -119,37 +119,51 @@ S["Expression"] = {"oneOf": [
          "args": array(ref("Expression"), minItems=1)}, ["kind", "operator", "args"])
 ], "description": "Bounded AST; server validates arity, types, units, lookback, depth, and allowed dataset visibility."}
 S["UniverseDefinition"] = {"oneOf": [
-    obj({"kind": enum("static"), "instrument_ids": array(ID, minItems=1)}, ["kind", "instrument_ids"]),
-    obj({"kind": enum("historical_rule"), "membership_dataset": TEXT, "membership_key": TEXT,
-         "filter": ref("Expression")}, ["kind", "membership_dataset", "membership_key"])
-]}
-S["UniverseCreate"] = obj({"name": TEXT, "definition": ref("UniverseDefinition"), "parent_id": ID}, ["name", "definition"])
-S["Universe"] = obj({**S["UniverseCreate"]["properties"], "id": ID, "version": ID,
-    "source": {**nullable(ref("ScreenUniverseSource")), "description": "Present only when the universe was saved from a successful screening run."}},
-    ["id", "version", "name", "definition"])
-S["UniverseResolve"] = obj({"snapshot_id": ID, "as_of": TIME, "cursor": TEXT,
-    "limit": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 200}}, ["snapshot_id", "as_of"])
-S["UniverseMembers"] = obj({"universe_ref": ref("VersionRef"), "as_of": TIME, "instrument_ids": array(ID),
-    "next_cursor": nullable(TEXT), "issues": array(ref("Issue"))}, ["universe_ref", "as_of", "instrument_ids", "next_cursor", "issues"])
+    obj({"kind": enum("static"), "members": array(ID, minItems=1)}, ["kind", "members"]),
+    obj({"kind": enum("historical_rule"), "rule": obj({"dataset": TEXT, "frequency": TEXT}, ["dataset", "frequency"])},
+        ["kind", "rule"])
+], "description": "static freezes an explicit member list (the research decision, valid exactly as saved); historical_rule resolves membership from a snapshot dataset's effective windows at every decision time, so delisted and later-removed instruments stay inside their historical samples."}
+S["UniverseCreate"] = obj({"name": TEXT, "snapshot_id": ID, "definition": ref("UniverseDefinition")},
+    ["name", "snapshot_id", "definition"],
+    description="Creation is not idempotent: every save mints a new immutable version bound to the named snapshot. Resolution always goes through a view pinned to that snapshot — never current tables.")
+S["Universe"] = obj({**S["UniverseCreate"]["properties"], "id": ID, "definition_hash": TEXT, "created_at": TIME},
+    ["id", "name", "snapshot_id", "definition", "definition_hash", "created_at"],
+    description="definition is the canonical (sorted, deduplicated) form; definition_hash covers the definition alone, excluding name and snapshot binding.")
+S["UniverseResolve"] = obj({"as_of": TIME}, ["as_of"],
+    description="Read-only preview; the snapshot comes from the universe version's binding, never from the request.")
+S["UniverseMembers"] = obj({"universe_id": ID, "as_of": TIME, "instrument_ids": array(ID), "count": INT},
+    ["universe_id", "as_of", "instrument_ids", "count"],
+    description="Membership resolved through a DataView pinned to the bound snapshot at as_of; an empty list is a valid membership, not an error.")
 S["InputRequirement"] = obj({"dataset": TEXT, "fields": array(TEXT, minItems=1), "frequency": TEXT,
     "lookback_periods": INT, "max_staleness_seconds": INT, "requires_strict_pit": BOOL},
     ["dataset", "fields", "frequency", "lookback_periods", "max_staleness_seconds", "requires_strict_pit"])
-factor_props = {"name": TEXT, "description": TEXT, "asset_classes": array(TEXT, minItems=1),
-    "parameter_schema": SCHEMA, "inputs": array(ref("InputRequirement")), "dependencies": array(ref("VersionRef")),
-    "output_unit": TEXT, "missing_policy": enum("propagate", "exclude", "error"), "expression": ref("Expression"), "parent_id": ID}
-S["FactorCreate"] = obj(factor_props, ["name", "description", "asset_classes", "parameter_schema", "inputs", "dependencies", "output_unit", "missing_policy", "expression"])
-S["Factor"] = obj({**factor_props, "id": ID, "version": ID, "implementation_ref": ref("VersionRef"),
-                   "kind": enum("go", "expression")},
-    ["id", "version", "name", "description", "kind", "asset_classes", "parameter_schema", "inputs", "dependencies", "output_unit", "missing_policy"])
+S["FactorParam"] = obj({"name": TEXT, "type": enum("integer", "number", "string", "boolean"), "required": BOOL,
+    "default": {"type": ["integer", "number", "string", "boolean", "null"]}, "min": nullable(NUM),
+    "max": nullable(NUM), "enum": array(TEXT)},
+    ["name", "type", "required"],
+    description="Optional parameters carry a default; canonicalization fills defaults in, so an explicit default and an omitted parameter produce the same run.")
+S["FactorInput"] = obj({"name": TEXT, "dataset": TEXT, "field": TEXT, "frequency": TEXT,
+    "lookback": {"type": "integer", "minimum": 0}, "unit": TEXT, "pit": BOOL,
+    "max_staleness_seconds": nullable({"type": "integer", "minimum": 1})},
+    ["name", "dataset", "field", "frequency", "lookback", "unit", "pit"],
+    description="lookback 0 means latest-value; parameterized windows resolve per request from the params. unit is mandatory so unit-mismatched arithmetic fails at registration, never mid-run.")
+S["Factor"] = obj({"id": ID, "version": ID, "title": TEXT, "kind": enum("builtin", "expression"),
+    "params": array(ref("FactorParam")), "inputs": array(ref("FactorInput")),
+    "dependencies": array(ref("VersionRef")), "output_unit": TEXT, "asset_classes": array(TEXT, minItems=1)},
+    ["id", "version", "title", "kind", "params", "inputs", "dependencies", "output_unit", "asset_classes"],
+    description="The factor capability catalog row: everything a form, a preflight or a dependency backlink needs. Factors are registered id+version pairs (M1 registers the builtin family at startup) and immutable once live.")
 S["FactorBinding"] = obj({"factor_ref": ref("VersionRef"), "params": PARAMS}, ["factor_ref", "params"])
-S["LabelConfig"] = obj({"horizon_periods": {"type": "integer", "minimum": 1}, "price_policy": TEXT,
-    "entry_lag_periods": INT, "groups": {"type": "integer", "minimum": 2}},
-    ["horizon_periods", "price_policy", "entry_lag_periods", "groups"], description="Evaluation only; label data is not exposed to strategy views.")
-S["FactorRunCreate"] = obj({"snapshot_id": ID, "universe_ref": ref("VersionRef"),
-    "factors": array(ref("FactorBinding"), minItems=1), "range": ref("Range"), "frequency": TEXT,
-    "decision_timezone": TEXT, "availability_policy_ref": ref("VersionRef"), "strict_pit": BOOL,
-    "analysis": nullable(ref("LabelConfig"))},
-    ["snapshot_id", "universe_ref", "factors", "range", "frequency", "decision_timezone", "availability_policy_ref", "strict_pit"])
+S["FactorRunRequest"] = obj({"snapshot_id": ID, "universe_id": ID, "factor_ref": ref("VersionRef"), "params": PARAMS,
+    "as_of": TIME, "window_from": TIME},
+    ["snapshot_id", "universe_id", "factor_ref", "as_of", "window_from"],
+    description="Synchronous computation over the pinned view: preflight returns every problem at once, then the engine computes the cross-section and serves the frame inline. [window_from, as_of) is the half-open input window; availability follows the view's available_at <= as_of semantics.")
+S["FactorMember"] = obj({"instrument_id": ID, "value": nullable(ref("Decimal")), "missing_reason": nullable(TEXT)},
+    ["instrument_id", "value", "missing_reason"],
+    description="The frame invariant: exactly one of value / missing_reason is present.")
+S["FactorRunResult"] = obj({"factor_ref": ref("VersionRef"), "snapshot_id": ID, "universe_id": ID, "as_of": TIME,
+    "covered": INT, "total": INT, "members": array(ref("FactorMember"))},
+    ["factor_ref", "snapshot_id", "universe_id", "as_of", "covered", "total", "members"],
+    description="Frame at as_of over the universe resolved at that time. covered counts members carrying a value; missing members carry their reason — coverage is reported per reason, never zero-filled.")
 S["StrategyTemplate"] = obj({"id": ID, "version": ID, "name": TEXT, "parameter_schema": SCHEMA,
     "inputs": array(ref("InputRequirement")), "description": TEXT}, ["id", "version", "name", "parameter_schema", "inputs", "description"])
 S["StrategyCreate"] = obj({"name": TEXT, "hypothesis": TEXT, "failure_criteria": TEXT,
@@ -192,9 +206,51 @@ S["Report"] = obj({"run_id": ID, "metrics": array(ref("Metric")), "issues": arra
 S["EquityPoint"] = obj({"at": TIME, "equity": ref("Money"), "nav": NUM, "benchmark_nav": nullable(NUM),
     "drawdown": NUM, "segment": enum("development", "validation", "test"), "quality_flags": array(TEXT)},
     ["at", "equity", "nav", "benchmark_nav", "drawdown", "segment", "quality_flags"])
-S["FactorAnalysis"] = obj({"run_id": ID, "factor_ref": ref("VersionRef"), "metrics": array(ref("Metric")),
-    "series_artifact_ids": array(ID), "issues": array(ref("Issue")), "label_config": nullable(ref("LabelConfig"))},
-    ["run_id", "factor_ref", "metrics", "series_artifact_ids", "issues", "label_config"])
+S["AnalysisSegment"] = obj({"kind": enum("train", "validation", "test"), "range": ref("Range")}, ["kind", "range"],
+    description="Chronologically ordered, non-overlapping and inside the analysis range; gaps are reported as uncovered dates, never hidden. Any future fitting reads the train segment only.")
+S["FactorAnalysisCreate"] = obj({"snapshot_id": ID, "universe_id": ID, "factor_ref": ref("VersionRef"), "params": PARAMS,
+    "range": ref("Range"), "as_of": TIME, "horizons": array({"type": "integer", "minimum": 1}, minItems=1),
+    "groups": {"type": "integer", "minimum": 2, "maximum": 10}, "min_samples": {"type": "integer", "minimum": 2},
+    "method": enum("pearson", "spearman"), "segments": array(ref("AnalysisSegment"))},
+    ["snapshot_id", "universe_id", "factor_ref", "range", "as_of", "horizons", "groups", "min_samples", "method"],
+    description="Synchronous factor-evidence analysis. as_of is the research present: it pins the label view and must not precede range.to. Horizons are holding periods in trading sessions. Labels are computed server-side from close prices — evaluation only, never factor inputs.")
+S["Stat"] = obj({"value": nullable(NUM), "reason": TEXT}, ["value"],
+    description="The null+reason contract: zero denominators, insufficient samples and not-applicable cases report null with a reason instead of a zero; a present value is always finite (never NaN or Infinity).")
+S["Distribution"] = obj({"count": INT, "mean": ref("Stat"), "std": ref("Stat"), "min": ref("Stat"),
+    "q05": ref("Stat"), "q25": ref("Stat"), "q50": ref("Stat"), "q75": ref("Stat"), "q95": ref("Stat"), "max": ref("Stat")},
+    ["count", "mean", "std", "min", "q05", "q25", "q50", "q75", "q95", "max"],
+    description="Quantiles use linear interpolation over the sorted values.")
+S["SeriesSummary"] = obj({"n": INT, "mean": ref("Stat"), "std": ref("Stat"), "ir": ref("Stat"), "positive_rate": ref("Stat")},
+    ["n", "mean", "std", "ir", "positive_rate"],
+    description="Aggregates the daily values that were computable; n is that date count. ir is mean over sample std — a constant series reports the zero-denominator reason.")
+S["BucketSummary"] = obj({"bucket": {"type": "integer", "minimum": 1}, "dates": INT, "mean_return": ref("Stat")},
+    ["bucket", "dates", "mean_return"],
+    description="bucket 1 holds the lowest factor values; the mean is the equal-weight mean of daily bucket means.")
+S["HorizonSummary"] = obj({"horizon": {"type": "integer", "minimum": 1}, "label_dates": INT, "missing_label_dates": INT,
+    "pairs": INT, "ic": ref("SeriesSummary"), "rank_ic": ref("SeriesSummary"), "correlation": ref("SeriesSummary"),
+    "buckets": array(ref("BucketSummary")), "high_low_spread": ref("SeriesSummary")},
+    ["horizon", "label_dates", "missing_label_dates", "pairs", "ic", "rank_ic", "correlation", "high_low_spread"],
+    description="The decay view: how IC, Rank IC, quantile bucket means and the high-minus-low spread evolve as the holding period grows. correlation aggregates the series selected by method; ic and rank_ic are always fully reported.")
+S["SegmentHorizon"] = obj({"horizon": {"type": "integer", "minimum": 1}, "labels": INT}, ["horizon", "labels"])
+S["SegmentSummary"] = obj({"kind": TEXT, "from": TIME, "to": TIME, "dates": INT, "samples": INT,
+    "horizons": array(ref("SegmentHorizon"))}, ["kind", "from", "to", "dates", "samples", "horizons"])
+S["CoverageSummary"] = obj({"covered": INT, "total": INT, "rate": ref("Stat")}, ["covered", "total", "rate"])
+S["AnalysisSummary"] = obj({"dates": INT, "coverage": ref("CoverageSummary"), "missing_reasons": mapping(INT),
+    "pooled_distribution": ref("Distribution"), "horizons": array(ref("HorizonSummary")),
+    "segments": array(ref("SegmentSummary")), "uncovered_dates": array(TIME)},
+    ["dates", "coverage", "pooled_distribution", "horizons"],
+    description="Page-level rollup of the full series; chart downsampling happens at render time and never mutates the stored artifact.")
+S["AnalysisConfig"] = obj({"ref": ref("VersionRef"), "definition_hash": TEXT, "params": PARAMS,
+    "label_price": TEXT, "label_entry": TEXT, "label_cost": TEXT,
+    "horizons": array({"type": "integer", "minimum": 1}), "method": TEXT,
+    "groups": {"type": "integer", "minimum": 2}, "min_samples": {"type": "integer", "minimum": 2},
+    "range": ref("Range"), "segments": array(ref("AnalysisSegment"))},
+    ["ref", "definition_hash", "params", "label_price", "label_entry", "label_cost", "horizons", "method", "groups", "min_samples", "range"],
+    description="The fixed analysis configuration the artifact was computed under; label values themselves never appear — labels are an input, not a stored dataset.")
+S["FactorAnalysisResult"] = obj({"artifact": ref("Artifact"), "config": ref("AnalysisConfig"),
+    "summary": ref("AnalysisSummary"), "evidence_note": TEXT},
+    ["artifact", "config", "summary", "evidence_note"],
+    description="The full per-date series lives in the canonical artifact (schema analysis-artifact/1) behind artifact.id; the response embeds only the page summary.")
 S["ResearchSeries"] = obj({"schema_version": ID, "series_id": ID, "name": TEXT, "unit": TEXT,
     "points": array(obj({"at": TIME, "value": nullable(NUM), "group": nullable(TEXT), "missing_reason": nullable(TEXT)},
         ["at", "value", "group", "missing_reason"]))}, ["schema_version", "series_id", "name", "unit", "points"],
@@ -211,8 +267,6 @@ S["Manifest"] = obj({"schema_version": ID, "build_hash": TEXT, "environment_hash
     "snapshot_hash": TEXT, "config_hash": TEXT, "factor_refs": array(ref("VersionRef")),
     "artifact_ids": array(ID), "availability_policy_ref": ref("VersionRef"), "seed": TEXT},
     ["schema_version", "build_hash", "environment_hash", "snapshot_hash", "config_hash", "factor_refs", "artifact_ids", "availability_policy_ref", "seed"])
-S["FactorRun"] = obj({"id": ID, "job_id": ID, "config": ref("FactorRunCreate"),
-    "artifact_ids": array(ID), "issues": array(ref("Issue"))}, ["id", "job_id", "config", "artifact_ids", "issues"])
 S["Backtest"] = obj({"id": ID, "job_id": ID, "config": ref("BacktestCreate"),
     "manifest": nullable(ref("Manifest"))}, ["id", "job_id", "config", "manifest"])
 S["Experiment"] = obj({"id": ID, "name": TEXT, "kind": enum("factor", "backtest"),
@@ -420,7 +474,8 @@ def operation(path, method, name, summary, result, body=None, status="200", pagi
         page_name = result + "Page"
         S.setdefault(page_name, obj({"items": array(ref(result)), "next_cursor": nullable(TEXT)}, ["items", "next_cursor"]))
         result = page_name
-    if method == "post" and path not in ("/data/query", "/backtests/preflight", "/factor-runs/preflight", "/universes/{id}/resolve", "/screen-runs/preflight",
+    if method == "post" and path not in ("/data/query", "/backtests/preflight", "/factor-runs/preflight", "/factor-runs",
+                                         "/universes/{id}/resolve", "/screen-runs/preflight",
                                          "/replay-sessions/preflight", "/replay-sessions/{id}/data/query"):
         params.append(param("Idempotency-Key", "header", string(minLength=8, maxLength=128), True))
     response = {"description": "Accepted; follow Location and wait for a terminal job state." if status == "202" else "Success",
@@ -451,12 +506,12 @@ for route, resource in [("providers", "Provider"), ("connections", "Connection")
     operation(f"/{route}/{{id}}", "get", f"get{resource}", f"Read {resource}", resource)
 
 for route, body, result in [("secrets", "SecretCreate", "SecretRef"), ("connections", "ConnectionCreate", "Connection"),
-                             ("universes", "UniverseCreate", "Universe"), ("factors", "FactorCreate", "Factor"),
+                             ("universes", "UniverseCreate", "Universe"),
                              ("strategies", "StrategyCreate", "Strategy")]:
     operation(f"/{route}", "post", f"create{result}", f"Create immutable {result}", result, body, "201")
 
 for route, body, name in [("ingestions", "IngestionCreate", "Ingestion"), ("snapshots", "SnapshotCreate", "Snapshot"),
-                          ("factor-runs", "FactorRunCreate", "FactorRun"), ("backtests", "BacktestCreate", "Backtest"),
+                          ("backtests", "BacktestCreate", "Backtest"),
                           ("experiments/compare", "CompareCreate", "Comparison"), ("exports", "ExportCreate", "Export")]:
     operation(f"/{route}", "post", f"start{name}", f"Start {name} job", "Job", body, "202")
 
@@ -467,10 +522,11 @@ S["ObservationPage"] = obj({"items": array(ref("Observation")), "next_cursor": n
 operation("/strategy-templates", "get", "listStrategyTemplates", "List registered templates", "StrategyTemplate", paging=True)
 operation("/models", "get", "listModels", "List versioned models and schemas", "Model", paging=True,
           extra=[param("kind", "query", S["Model"]["properties"]["kind"])])
-operation("/factor-runs/{id}", "get", "getFactorRun", "Read factor computation and artifact references", "FactorRun")
-operation("/factor-runs/preflight", "post", "preflightFactorRun", "Check factor dependencies, lookback and time evidence", "Preflight", "FactorRunCreate")
-operation("/factor-runs/{id}/analysis", "get", "getFactorAnalysis", "Read one factor's completed analysis", "FactorAnalysis",
-          extra=[param("factor_id", "query", ID, True)])
+operation("/factors/{id}", "get", "getFactor", "Read one registered factor version", "Factor",
+          extra=[param("version", "query", ID, True)])
+operation("/factor-runs/preflight", "post", "preflightFactorRun", "Check graph, params, universe and data availability without computing", "Preflight", "FactorRunRequest")
+operation("/factor-runs", "post", "runFactor", "Compute one factor cross-section synchronously", "FactorRunResult", "FactorRunRequest")
+operation("/factor-analyses", "post", "runFactorAnalysis", "Compute the factor evidence analysis and store its canonical artifact", "FactorAnalysisResult", "FactorAnalysisCreate")
 operation("/universes/{id}/resolve", "post", "resolveUniverse", "Preview historical members at an explicit decision time", "UniverseMembers", "UniverseResolve")
 operation("/backtests/{id}", "get", "getBacktest", "Read immutable backtest input and manifest", "Backtest")
 operation("/backtests/preflight", "post", "preflightBacktest", "Validate all dependencies without starting computation", "Preflight", "BacktestCreate")

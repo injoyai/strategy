@@ -36,6 +36,20 @@ func StatusForError(code string) int {
 		domain.CodeValidationUnitMismatch,
 		domain.CodeValidationCurrencyMismatch:
 		return http.StatusBadRequest
+	// M1-09 research surface. The factor and analysis codes mirror the
+	// validation/not-found classes (see internal/factor/codes.go and
+	// internal/analysis/codes.go); preflight findings are semantic
+	// validation: everything about the request was parsed, the data
+	// cannot support it — the 422 contract slot.
+	case "factor.request_invalid",
+		"analysis.request_invalid",
+		"analysis.series_invalid",
+		"analysis.labels_invalid":
+		return http.StatusBadRequest
+	case "factor.not_registered":
+		return http.StatusNotFound
+	case "factor.preflight_failed":
+		return http.StatusUnprocessableEntity
 	case domain.CodeAuthUnauthorized:
 		return http.StatusUnauthorized
 	case domain.CodeAuthForbidden:

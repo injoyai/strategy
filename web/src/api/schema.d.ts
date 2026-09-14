@@ -221,8 +221,7 @@ export interface paths {
         /** List factors */
         get: operations["listFactors"];
         put?: never;
-        /** Create immutable Factor */
-        post: operations["createFactor"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -236,7 +235,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Read Factor */
+        /** Read one registered factor version */
         get: operations["getFactor"];
         put?: never;
         post?: never;
@@ -383,23 +382,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/factor-runs": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Start FactorRun job */
-        post: operations["startFactorRun"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/backtests": {
         parameters: {
             query?: never;
@@ -536,23 +518,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/factor-runs/{id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Read factor computation and artifact references */
-        get: operations["getFactorRun"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/factor-runs/preflight": {
         parameters: {
             query?: never;
@@ -562,7 +527,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Check factor dependencies, lookback and time evidence */
+        /** Check graph, params, universe and data availability without computing */
         post: operations["preflightFactorRun"];
         delete?: never;
         options?: never;
@@ -570,17 +535,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/factor-runs/{id}/analysis": {
+    "/factor-runs": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Read one factor's completed analysis */
-        get: operations["getFactorAnalysis"];
+        get?: never;
         put?: never;
-        post?: never;
+        /** Compute one factor cross-section synchronously */
+        post: operations["runFactor"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/factor-analyses": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Compute the factor evidence analysis and store its canonical artifact */
+        post: operations["runFactorAnalysis"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1431,46 +1413,47 @@ export interface components {
             operator: "add" | "subtract" | "multiply" | "divide" | "lag" | "mean" | "std" | "rank" | "zscore" | "gt" | "lt" | "and" | "or";
             args: components["schemas"]["Expression"][];
         };
+        /** @description static freezes an explicit member list (the research decision, valid exactly as saved); historical_rule resolves membership from a snapshot dataset's effective windows at every decision time, so delisted and later-removed instruments stay inside their historical samples. */
         UniverseDefinition: {
             /** @enum {string} */
             kind: "static";
-            instrument_ids: string[];
+            members: string[];
         } | {
             /** @enum {string} */
             kind: "historical_rule";
-            membership_dataset: string;
-            membership_key: string;
-            filter?: components["schemas"]["Expression"];
+            rule: {
+                dataset: string;
+                frequency: string;
+            };
         };
+        /** @description Creation is not idempotent: every save mints a new immutable version bound to the named snapshot. Resolution always goes through a view pinned to that snapshot — never current tables. */
         UniverseCreate: {
             name: string;
+            snapshot_id: string;
             definition: components["schemas"]["UniverseDefinition"];
-            parent_id?: string;
         };
+        /** @description definition is the canonical (sorted, deduplicated) form; definition_hash covers the definition alone, excluding name and snapshot binding. */
         Universe: {
             name: string;
-            definition: components["schemas"]["UniverseDefinition"];
-            parent_id?: string;
-            id: string;
-            version: string;
-            /** @description Present only when the universe was saved from a successful screening run. */
-            source?: components["schemas"]["ScreenUniverseSource"] | null;
-        };
-        UniverseResolve: {
             snapshot_id: string;
+            definition: components["schemas"]["UniverseDefinition"];
+            id: string;
+            definition_hash: string;
+            /** Format: date-time */
+            created_at: string;
+        };
+        /** @description Read-only preview; the snapshot comes from the universe version's binding, never from the request. */
+        UniverseResolve: {
             /** Format: date-time */
             as_of: string;
-            cursor?: string;
-            /** @default 200 */
-            limit: number;
         };
+        /** @description Membership resolved through a DataView pinned to the bound snapshot at as_of; an empty list is a valid membership, not an error. */
         UniverseMembers: {
-            universe_ref: components["schemas"]["VersionRef"];
+            universe_id: string;
             /** Format: date-time */
             as_of: string;
             instrument_ids: string[];
-            next_cursor: string | null;
-            issues: components["schemas"]["Issue"][];
+            count: number;
         };
         InputRequirement: {
             dataset: string;
@@ -1480,42 +1463,40 @@ export interface components {
             max_staleness_seconds: number;
             requires_strict_pit: boolean;
         };
-        FactorCreate: {
+        /** @description Optional parameters carry a default; canonicalization fills defaults in, so an explicit default and an omitted parameter produce the same run. */
+        FactorParam: {
             name: string;
-            description: string;
-            asset_classes: string[];
-            /** @description JSON Schema 2020-12 for a registered configuration. */
-            parameter_schema: {
-                [key: string]: unknown;
-            };
-            inputs: components["schemas"]["InputRequirement"][];
-            dependencies: components["schemas"]["VersionRef"][];
-            output_unit: string;
             /** @enum {string} */
-            missing_policy: "propagate" | "exclude" | "error";
-            expression: components["schemas"]["Expression"];
-            parent_id?: string;
+            type: "integer" | "number" | "string" | "boolean";
+            required: boolean;
+            default?: number | string | boolean | null;
+            min?: number | null;
+            max?: number | null;
+            enum?: string[];
         };
-        Factor: {
+        /** @description lookback 0 means latest-value; parameterized windows resolve per request from the params. unit is mandatory so unit-mismatched arithmetic fails at registration, never mid-run. */
+        FactorInput: {
             name: string;
-            description: string;
-            asset_classes: string[];
-            /** @description JSON Schema 2020-12 for a registered configuration. */
-            parameter_schema: {
-                [key: string]: unknown;
-            };
-            inputs: components["schemas"]["InputRequirement"][];
-            dependencies: components["schemas"]["VersionRef"][];
-            output_unit: string;
-            /** @enum {string} */
-            missing_policy: "propagate" | "exclude" | "error";
-            expression?: components["schemas"]["Expression"];
-            parent_id?: string;
+            dataset: string;
+            field: string;
+            frequency: string;
+            lookback: number;
+            unit: string;
+            pit: boolean;
+            max_staleness_seconds?: number | null;
+        };
+        /** @description The factor capability catalog row: everything a form, a preflight or a dependency backlink needs. Factors are registered id+version pairs (M1 registers the builtin family at startup) and immutable once live. */
+        Factor: {
             id: string;
             version: string;
-            implementation_ref?: components["schemas"]["VersionRef"];
+            title: string;
             /** @enum {string} */
-            kind: "go" | "expression";
+            kind: "builtin" | "expression";
+            params: components["schemas"]["FactorParam"][];
+            inputs: components["schemas"]["FactorInput"][];
+            dependencies: components["schemas"]["VersionRef"][];
+            output_unit: string;
+            asset_classes: string[];
         };
         FactorBinding: {
             factor_ref: components["schemas"]["VersionRef"];
@@ -1524,23 +1505,36 @@ export interface components {
                 [key: string]: unknown;
             };
         };
-        /** @description Evaluation only; label data is not exposed to strategy views. */
-        LabelConfig: {
-            horizon_periods: number;
-            price_policy: string;
-            entry_lag_periods: number;
-            groups: number;
-        };
-        FactorRunCreate: {
+        /** @description Synchronous computation over the pinned view: preflight returns every problem at once, then the engine computes the cross-section and serves the frame inline. [window_from, as_of) is the half-open input window; availability follows the view's available_at <= as_of semantics. */
+        FactorRunRequest: {
             snapshot_id: string;
-            universe_ref: components["schemas"]["VersionRef"];
-            factors: components["schemas"]["FactorBinding"][];
-            range: components["schemas"]["Range"];
-            frequency: string;
-            decision_timezone: string;
-            availability_policy_ref: components["schemas"]["VersionRef"];
-            strict_pit: boolean;
-            analysis?: components["schemas"]["LabelConfig"] | null;
+            universe_id: string;
+            factor_ref: components["schemas"]["VersionRef"];
+            /** @description Validated using the referenced registered parameter schema; not arbitrary executable code. */
+            params?: {
+                [key: string]: unknown;
+            };
+            /** Format: date-time */
+            as_of: string;
+            /** Format: date-time */
+            window_from: string;
+        };
+        /** @description The frame invariant: exactly one of value / missing_reason is present. */
+        FactorMember: {
+            instrument_id: string;
+            value: components["schemas"]["Decimal"] | null;
+            missing_reason: string | null;
+        };
+        /** @description Frame at as_of over the universe resolved at that time. covered counts members carrying a value; missing members carry their reason — coverage is reported per reason, never zero-filled. */
+        FactorRunResult: {
+            factor_ref: components["schemas"]["VersionRef"];
+            snapshot_id: string;
+            universe_id: string;
+            /** Format: date-time */
+            as_of: string;
+            covered: number;
+            total: number;
+            members: components["schemas"]["FactorMember"][];
         };
         StrategyTemplate: {
             id: string;
@@ -1697,13 +1691,130 @@ export interface components {
             segment: "development" | "validation" | "test";
             quality_flags: string[];
         };
-        FactorAnalysis: {
-            run_id: string;
+        /** @description Chronologically ordered, non-overlapping and inside the analysis range; gaps are reported as uncovered dates, never hidden. Any future fitting reads the train segment only. */
+        AnalysisSegment: {
+            /** @enum {string} */
+            kind: "train" | "validation" | "test";
+            range: components["schemas"]["Range"];
+        };
+        /** @description Synchronous factor-evidence analysis. as_of is the research present: it pins the label view and must not precede range.to. Horizons are holding periods in trading sessions. Labels are computed server-side from close prices — evaluation only, never factor inputs. */
+        FactorAnalysisCreate: {
+            snapshot_id: string;
+            universe_id: string;
             factor_ref: components["schemas"]["VersionRef"];
-            metrics: components["schemas"]["Metric"][];
-            series_artifact_ids: string[];
-            issues: components["schemas"]["Issue"][];
-            label_config: components["schemas"]["LabelConfig"] | null;
+            /** @description Validated using the referenced registered parameter schema; not arbitrary executable code. */
+            params?: {
+                [key: string]: unknown;
+            };
+            range: components["schemas"]["Range"];
+            /** Format: date-time */
+            as_of: string;
+            horizons: number[];
+            groups: number;
+            min_samples: number;
+            /** @enum {string} */
+            method: "pearson" | "spearman";
+            segments?: components["schemas"]["AnalysisSegment"][];
+        };
+        /** @description The null+reason contract: zero denominators, insufficient samples and not-applicable cases report null with a reason instead of a zero; a present value is always finite (never NaN or Infinity). */
+        Stat: {
+            value: number | null;
+            reason?: string;
+        };
+        /** @description Quantiles use linear interpolation over the sorted values. */
+        Distribution: {
+            count: number;
+            mean: components["schemas"]["Stat"];
+            std: components["schemas"]["Stat"];
+            min: components["schemas"]["Stat"];
+            q05: components["schemas"]["Stat"];
+            q25: components["schemas"]["Stat"];
+            q50: components["schemas"]["Stat"];
+            q75: components["schemas"]["Stat"];
+            q95: components["schemas"]["Stat"];
+            max: components["schemas"]["Stat"];
+        };
+        /** @description Aggregates the daily values that were computable; n is that date count. ir is mean over sample std — a constant series reports the zero-denominator reason. */
+        SeriesSummary: {
+            n: number;
+            mean: components["schemas"]["Stat"];
+            std: components["schemas"]["Stat"];
+            ir: components["schemas"]["Stat"];
+            positive_rate: components["schemas"]["Stat"];
+        };
+        /** @description bucket 1 holds the lowest factor values; the mean is the equal-weight mean of daily bucket means. */
+        BucketSummary: {
+            bucket: number;
+            dates: number;
+            mean_return: components["schemas"]["Stat"];
+        };
+        /** @description The decay view: how IC, Rank IC, quantile bucket means and the high-minus-low spread evolve as the holding period grows. correlation aggregates the series selected by method; ic and rank_ic are always fully reported. */
+        HorizonSummary: {
+            horizon: number;
+            label_dates: number;
+            missing_label_dates: number;
+            pairs: number;
+            ic: components["schemas"]["SeriesSummary"];
+            rank_ic: components["schemas"]["SeriesSummary"];
+            correlation: components["schemas"]["SeriesSummary"];
+            buckets?: components["schemas"]["BucketSummary"][];
+            high_low_spread: components["schemas"]["SeriesSummary"];
+        };
+        SegmentHorizon: {
+            horizon: number;
+            labels: number;
+        };
+        SegmentSummary: {
+            kind: string;
+            /** Format: date-time */
+            from: string;
+            /** Format: date-time */
+            to: string;
+            dates: number;
+            samples: number;
+            horizons: components["schemas"]["SegmentHorizon"][];
+        };
+        CoverageSummary: {
+            covered: number;
+            total: number;
+            rate: components["schemas"]["Stat"];
+        };
+        /** @description Page-level rollup of the full series; chart downsampling happens at render time and never mutates the stored artifact. */
+        AnalysisSummary: {
+            dates: number;
+            coverage: components["schemas"]["CoverageSummary"];
+            missing_reasons?: {
+                [key: string]: number;
+            };
+            pooled_distribution: components["schemas"]["Distribution"];
+            horizons: components["schemas"]["HorizonSummary"][];
+            segments?: components["schemas"]["SegmentSummary"][];
+            uncovered_dates?: string[];
+        };
+        /** @description The fixed analysis configuration the artifact was computed under; label values themselves never appear — labels are an input, not a stored dataset. */
+        AnalysisConfig: {
+            ref: components["schemas"]["VersionRef"];
+            definition_hash: string;
+            /** @description Validated using the referenced registered parameter schema; not arbitrary executable code. */
+            params: {
+                [key: string]: unknown;
+            };
+            label_price: string;
+            label_entry: string;
+            label_cost: string;
+            horizons: number[];
+            method: string;
+            groups: number;
+            min_samples: number;
+            range: components["schemas"]["Range"];
+            segments?: components["schemas"]["AnalysisSegment"][];
+        };
+        /** @description The full per-date series lives in the canonical artifact (schema analysis-artifact/1) behind artifact.id; the response embeds only the page summary. */
+        FactorAnalysisResult: {
+            artifact: components["schemas"]["Artifact"];
+            config: components["schemas"]["AnalysisConfig"];
+            summary: components["schemas"]["AnalysisSummary"];
+            evidence_note: string;
         };
         /** @description JSON artifact format for factor IC, coverage and grouped-return series; large outputs are split into ordered artifacts. */
         ResearchSeries: {
@@ -1752,13 +1863,6 @@ export interface components {
             artifact_ids: string[];
             availability_policy_ref: components["schemas"]["VersionRef"];
             seed: string;
-        };
-        FactorRun: {
-            id: string;
-            job_id: string;
-            config: components["schemas"]["FactorRunCreate"];
-            artifact_ids: string[];
-            issues: components["schemas"]["Issue"][];
         };
         Backtest: {
             id: string;
@@ -4021,116 +4125,11 @@ export interface operations {
             };
         };
     };
-    createFactor: {
-        parameters: {
-            query?: never;
-            header: {
-                "Idempotency-Key": string;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["FactorCreate"];
-            };
-        };
-        responses: {
-            /** @description Success */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Factor"];
-                };
-            };
-            /** @description Invalid request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Unauthenticated */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Conflict or result not ready */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Semantic validation failed */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Rate limited */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Internal error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Unavailable */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
     getFactor: {
         parameters: {
-            query?: never;
+            query: {
+                version: string;
+            };
             header?: never;
             path: {
                 id: string;
@@ -5183,115 +5182,6 @@ export interface operations {
             };
         };
     };
-    startFactorRun: {
-        parameters: {
-            query?: never;
-            header: {
-                "Idempotency-Key": string;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["FactorRunCreate"];
-            };
-        };
-        responses: {
-            /** @description Accepted; follow Location and wait for a terminal job state. */
-            202: {
-                headers: {
-                    /** @description Job resource URL */
-                    Location?: string;
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Job"];
-                };
-            };
-            /** @description Invalid request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Unauthenticated */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Conflict or result not ready */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Semantic validation failed */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Rate limited */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Internal error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Unavailable */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
     startBacktest: {
         parameters: {
             query?: never;
@@ -6157,109 +6047,6 @@ export interface operations {
             };
         };
     };
-    getFactorRun: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Success */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["FactorRun"];
-                };
-            };
-            /** @description Invalid request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Unauthenticated */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Conflict or result not ready */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Semantic validation failed */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Rate limited */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Internal error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Unavailable */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
     preflightFactorRun: {
         parameters: {
             query?: never;
@@ -6269,7 +6056,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["FactorRunCreate"];
+                "application/json": components["schemas"]["FactorRunRequest"];
             };
         };
         responses: {
@@ -6365,18 +6152,18 @@ export interface operations {
             };
         };
     };
-    getFactorAnalysis: {
+    runFactor: {
         parameters: {
-            query: {
-                factor_id: string;
-            };
+            query?: never;
             header?: never;
-            path: {
-                id: string;
-            };
+            path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FactorRunRequest"];
+            };
+        };
         responses: {
             /** @description Success */
             200: {
@@ -6384,7 +6171,114 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["FactorAnalysis"];
+                    "application/json": components["schemas"]["FactorRunResult"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Conflict or result not ready */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Semantic validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Rate limited */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    runFactorAnalysis: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FactorAnalysisCreate"];
+            };
+        };
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FactorAnalysisResult"];
                 };
             };
             /** @description Invalid request */
