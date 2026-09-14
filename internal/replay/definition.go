@@ -49,6 +49,13 @@ func (m ModelRef) Validate() error { return m.Ref.Validate() }
 // Config is the frozen set of replay session inputs. The server derives every
 // decision time from these inputs plus the current session; the browser never
 // supplies a historical time.
+//
+// The field set mirrors the contract's ReplayConfig exactly. The four policy
+// fields are explicit validated strings rather than defaults: which day-end
+// rule, which cash rule, how a session ends and which order types it may
+// submit are decisions with money consequences, and an absent value must be
+// refused instead of invented. Which *values* those policies may take is
+// declared by the referenced versioned models.
 type Config struct {
 	Name            string
 	SnapshotID      domain.ID
@@ -57,7 +64,9 @@ type Config struct {
 	To              time.Time
 	Timezone        string
 	DayEndPolicy    string
-	DecisionPolicy  string
+	CashPolicy      string
+	EndPolicy       string
+	OrderTypes      []string
 	WarmupDays      int
 	StrictPIT       bool
 	InitialCash     domain.Money
@@ -90,13 +99,34 @@ func (c Config) Validate() []domain.Issue {
 	if strings.TrimSpace(c.Timezone) == "" {
 		add(codeTimezoneInvalid, "timezone", "decision timezone is required")
 	}
+	if c.WarmupDays < 0 {
+		add(codeRangeInvalid, "warmup_days", "warmup_days must not be negative")
+	}
 	for _, p := range []struct {
 		path string
 		pol  string
-	}{{"day_end_policy", c.DayEndPolicy}, {"decision_policy", c.DecisionPolicy}} {
+	}{{"day_end_policy", c.DayEndPolicy}, {"cash_policy", c.CashPolicy}, {"end_policy", c.EndPolicy}} {
 		if strings.TrimSpace(p.pol) == "" {
 			add(codePolicyInvalid, p.path, "policy is required")
 		}
+	}
+	if len(c.OrderTypes) == 0 {
+		add(codePolicyInvalid, "order_types", "at least one order type is required")
+	}
+	seen := make(map[string]struct{}, len(c.OrderTypes))
+	for i, kind := range c.OrderTypes {
+		trimmed := strings.TrimSpace(kind)
+		if trimmed == "" {
+			add(codePolicyInvalid, "order_types", fmt.Sprintf("order_types[%d] is empty", i))
+			continue
+		}
+		if _, dup := seen[trimmed]; dup {
+			// A repeated capability would be counted twice by anything that
+			// walks the list, so it is refused rather than deduplicated quietly.
+			add(codePolicyInvalid, "order_types", fmt.Sprintf("order type %q is listed twice", trimmed))
+			continue
+		}
+		seen[trimmed] = struct{}{}
 	}
 	for _, r := range []struct {
 		path string
@@ -125,7 +155,15 @@ func (c Config) Hash() string {
 	field(c.To.UTC().Format(time.RFC3339Nano))
 	field(c.Timezone)
 	field(c.DayEndPolicy)
-	field(c.DecisionPolicy)
+	field(c.CashPolicy)
+	field(c.EndPolicy)
+	// Order types are a set of capabilities, so the hash depends on which types
+	// are allowed rather than on the order they were listed in.
+	orderTypes := append([]string{}, c.OrderTypes...)
+	sort.Strings(orderTypes)
+	for _, kind := range orderTypes {
+		field(kind)
+	}
 	field(fmt.Sprint(c.WarmupDays))
 	field(fmt.Sprint(c.StrictPIT))
 	field(c.InitialCash.Currency)

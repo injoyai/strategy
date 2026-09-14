@@ -40,7 +40,9 @@ func baseConfig(t *testing.T) Config {
 		To:              from.AddDate(0, 0, 5),
 		Timezone:        "Asia/Shanghai",
 		DayEndPolicy:    "close_of_bar",
-		DecisionPolicy:  "at_decision_time",
+		CashPolicy:      "settle_on_fill",
+		EndPolicy:       "cancel_remainder_keep_positions",
+		OrderTypes:      []string{"market", "limit"},
 		WarmupDays:      5,
 		StrictPIT:       true,
 		InitialCash:     newMoney(t, "1000000", "USD"),
@@ -284,6 +286,58 @@ func TestConfigValidation(t *testing.T) {
 	cfg.FillModel = ModelRef{}
 	if issues := cfg.Validate(); !containsCode(t, issues, codeModelInvalid) {
 		t.Fatalf("want model_invalid, got %+v", issues)
+	}
+}
+
+// TestConfigRequiresTheContractsExplicitFields pins the four policy inputs the
+// contract declares as explicit validated values. Each one decides something
+// with money consequences (when a day ends, when cash settles, what happens to
+// open orders at the end, which order types may be submitted), so an absent or
+// degenerate value is refused instead of defaulted.
+func TestConfigRequiresTheContractsExplicitFields(t *testing.T) {
+	cases := []struct {
+		name string
+		edit func(*Config)
+		code string
+	}{
+		{"no day-end policy", func(cfg *Config) { cfg.DayEndPolicy = "" }, codePolicyInvalid},
+		{"no cash policy", func(cfg *Config) { cfg.CashPolicy = " " }, codePolicyInvalid},
+		{"no end policy", func(cfg *Config) { cfg.EndPolicy = "" }, codePolicyInvalid},
+		{"no order types", func(cfg *Config) { cfg.OrderTypes = nil }, codePolicyInvalid},
+		{"blank order type", func(cfg *Config) { cfg.OrderTypes = []string{"market", " "} }, codePolicyInvalid},
+		{"duplicate order type", func(cfg *Config) { cfg.OrderTypes = []string{"market", "market"} }, codePolicyInvalid},
+		{"negative warmup", func(cfg *Config) { cfg.WarmupDays = -1 }, codeRangeInvalid},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			cfg := baseConfig(t)
+			c.edit(&cfg)
+			if issues := cfg.Validate(); !containsCode(t, issues, c.code) {
+				t.Fatalf("want %s, got %+v", c.code, issues)
+			}
+		})
+	}
+}
+
+func TestConfigHashCoversThePolicySet(t *testing.T) {
+	base := baseConfig(t)
+	reordered := baseConfig(t)
+	reordered.OrderTypes = []string{"limit", "market"}
+	// Order types are a set of capabilities, so listing the same set differently
+	// is the same session.
+	if base.Hash() != reordered.Hash() {
+		t.Fatal("order types must hash as a set")
+	}
+	for name, edit := range map[string]func(*Config){
+		"cash policy": func(cfg *Config) { cfg.CashPolicy = "immediate" },
+		"end policy":  func(cfg *Config) { cfg.EndPolicy = "liquidate_at_close" },
+		"order types": func(cfg *Config) { cfg.OrderTypes = []string{"market"} },
+	} {
+		changed := baseConfig(t)
+		edit(&changed)
+		if base.Hash() == changed.Hash() {
+			t.Fatalf("a different %s must change the config hash", name)
+		}
 	}
 }
 
