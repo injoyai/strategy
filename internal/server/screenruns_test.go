@@ -72,6 +72,29 @@ func screenSlowSpec() *factor.Spec {
 	}
 }
 
+// screenUnitSpec reads the same daily close but declares it in shares, so the
+// dataset's declared unit and the factor's contract disagree.
+func screenUnitSpec() *factor.Spec {
+	return &factor.Spec{
+		ID:      "unit-momentum",
+		Version: "1.0.0",
+		Title:   "Unit momentum",
+		Kind:    factor.KindBuiltin,
+		Params: []factor.Param{
+			{Name: "n", Type: factor.ParamInteger, Required: true},
+		},
+		Inputs: []factor.Input{{
+			Name: "close", Dataset: "bar", Field: "close", Frequency: "daily",
+			Lookback: 1, Unit: "shares", PIT: true,
+		}},
+		OutputUnit:   "ratio",
+		AssetClasses: []string{"equity"},
+		Compute: func(*factor.ComputeContext) (domain.Decimal, string, error) {
+			return domain.Decimal("1"), "", nil
+		},
+	}
+}
+
 func screenBarRow(inst string) domain.Observation {
 	at := time.Date(2026, 1, 5, 15, 30, 0, 0, time.UTC)
 	published := at
@@ -125,6 +148,9 @@ func newScreenStack(t *testing.T) *screenStack {
 	if err := registry.Register(screenSlowSpec()); err != nil {
 		t.Fatalf("register slow momentum: %v", err)
 	}
+	if err := registry.Register(screenUnitSpec()); err != nil {
+		t.Fatalf("register unit momentum: %v", err)
+	}
 	runs, err := screenrun.New(dataStore, registry, factor.NewCache())
 	if err != nil {
 		t.Fatalf("build screenrun service: %v", err)
@@ -146,6 +172,14 @@ func newScreenStack(t *testing.T) *screenStack {
 		Dataset:      "bar",
 		Frequency:    "daily",
 		Observations: []domain.Observation{screenBarRow("INST_A"), screenBarRow("INST_B")},
+		// The unit vocabulary is the platform's: the bar fixture declares close
+		// in "price", and the factor specs declare the same, so a preflight can
+		// verify the unit contract instead of guessing.
+		Declaration: &domain.DatasetDeclaration{
+			Frequency:             "daily",
+			AvailabilityPolicyRef: domain.VersionRef{ID: "availability", Version: "v1"},
+			Fields:                []domain.DatasetField{{Name: "close", Unit: "price"}},
+		},
 	})
 	if err != nil {
 		t.Fatalf("append batch: %v", err)
@@ -380,6 +414,80 @@ func TestScreenRunPreflightChecksLiteralAgainstCatalogType(t *testing.T) {
 		}
 	}
 	t.Fatalf("issues = %+v, want an error-severity screening.literal_kind_mismatch", out.Issues)
+}
+
+// TestScreenRunPreflightRejectsAMismatchedUnit is SC-AC-01's unit half at the
+// HTTP boundary: the factor contract declares the unit its inputs carry, the
+// dataset declares the unit its values are stored in, and a disagreement is a
+// finding that blocks the run — never a silent reinterpretation of the values.
+func TestScreenRunPreflightRejectsAMismatchedUnit(t *testing.T) {
+	stack := newScreenStack(t)
+	unit := saveScreener(t, stack.handler, "screenrun-seed-unit", `{
+      "name": "unit-pool",
+      "input_bindings": [
+        {"binding_id":"mom","kind":"factor","factor_ref":{"id":"unit-momentum","version":"1.0.0"},"params":{"n":20}}
+      ],
+      "condition_tree": {"node_id":"present","kind":"missing","input":{"binding_id":"mom"},"is_present":true},
+      "ranking": {"mode":"sort","fields":[{"input":{"binding_id":"mom"},"direction":"desc"}]},
+      "selection": {"mode":"all"}
+    }`)
+
+	body := []byte(fmt.Sprintf(`{
+      "screener_ref": {"id": %q, "version": %q},
+      "snapshot_id": %q,
+      "universe_ref": {"id": %q, "version": %q},
+      "as_of": "2026-01-15T00:00:00Z",
+      "decision_timezone": "Asia/Shanghai",
+      "strict_pit": false,
+      "required_value_policy": "exclude_instrument"
+    }`, unit.ID, unit.Version, stack.snapshot.ID, stack.universe.ID, stack.universe.DefinitionHash))
+
+	rec := stack.preflight(t, body)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("preflight status = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	var out struct {
+		Valid  bool `json:"valid"`
+		Issues []struct {
+			Code     string `json:"code"`
+			Severity string `json:"severity"`
+			Message  string `json:"message"`
+		} `json:"issues"`
+		Coverage []struct {
+			BindingID string  `json:"binding_id"`
+			Available bool    `json:"available"`
+			Reason    *string `json:"reason"`
+		} `json:"coverage"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("decode preflight: %v", err)
+	}
+	if out.Valid {
+		t.Fatalf("preflight = %s, want invalid: close is declared in price, not shares", rec.Body.String())
+	}
+	var mismatch bool
+	for _, issue := range out.Issues {
+		if issue.Code == "screenrun.unit_mismatch" && issue.Severity == "error" {
+			mismatch = true
+			if !strings.Contains(issue.Message, "price") || !strings.Contains(issue.Message, "shares") {
+				t.Fatalf("issue = %+v, want both units named", issue)
+			}
+		}
+	}
+	if !mismatch {
+		t.Fatalf("issues = %+v, want an error-severity screenrun.unit_mismatch", out.Issues)
+	}
+	for _, coverage := range out.Coverage {
+		if coverage.BindingID == "mom" && (coverage.Available || coverage.Reason == nil || *coverage.Reason != "screenrun.unit_mismatch") {
+			t.Fatalf("coverage = %+v, want unavailable with reason screenrun.unit_mismatch", coverage)
+		}
+	}
+
+	// Submission follows the same boundary: 422 with the findings, no job.
+	submit := stack.submit(t, "screenrun-submit-key-unit", body)
+	if submit.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("submit status = %d, want 422: %s", submit.Code, submit.Body.String())
+	}
 }
 
 func TestScreenRunPreflightRejectsUnpinnedUniverse(t *testing.T) {

@@ -361,23 +361,74 @@ func (s *Service) checkFieldBinding(ctx context.Context, binding screening.Input
 			fmt.Sprintf("dataset %q referenced by binding %s does not exist", binding.Dataset, binding.BindingID))
 		return "", Coverage{BindingID: binding.BindingID, Available: false, Reason: &reason}, &problem, nil
 	}
-	for _, field := range dataset.Fields {
-		if field.Name != binding.Field {
+	field, ok := datasetField(dataset, binding.Field)
+	if !ok {
+		reason := codeFieldUnknown
+		problem := issueFor(binding.BindingID, reason,
+			fmt.Sprintf("dataset %q has no field %q", binding.Dataset, binding.Field))
+		return "", Coverage{BindingID: binding.BindingID, Available: false, Reason: &reason}, &problem, nil
+	}
+	kind := screening.ValueKindOfFieldType(field.Type)
+	if kind == "" {
+		reason := codeFieldUnobserved
+		problem := issueFor(binding.BindingID, reason,
+			fmt.Sprintf("field %s/%s has no observed values, so its type is unknown", binding.Dataset, binding.Field))
+		return "", Coverage{BindingID: binding.BindingID, Available: false, Reason: &reason}, &problem, nil
+	}
+	return kind, Coverage{BindingID: binding.BindingID, Available: true}, nil, nil
+}
+
+// checkFactorInputUnits verifies every input a factor declares against the
+// dataset catalog: the dataset and field must be known, and the field's
+// declared unit must be exactly the unit the factor contract expects. Units are
+// compared by equality — the same rule the expression unit checker applies — so
+// "price" is not "shares" even though both are numbers.
+//
+// An undeclared unit is a finding, not a pass: the ingestion that never declared
+// the field's unit leaves the contract unverifiable, and treating that as
+// compatible would silently use values under a unit nobody stated.
+func (s *Service) checkFactorInputUnits(ctx context.Context, bindingID domain.ID, spec *factor.Spec) ([]domain.Issue, error) {
+	var issues []domain.Issue
+	for _, input := range spec.Inputs {
+		dataset, err := s.data.GetDataset(ctx, domain.ID(input.Dataset))
+		if err != nil {
+			if domain.ErrorCode(err) != domain.CodeResourceNotFound {
+				return nil, err
+			}
+			issues = append(issues, issueFor(bindingID, codeDatasetUnknown,
+				fmt.Sprintf("factor input %s reads dataset %q, which does not exist", input.Name, input.Dataset)))
 			continue
 		}
-		kind := screening.ValueKindOfFieldType(field.Type)
-		if kind == "" {
-			reason := codeFieldUnobserved
-			problem := issueFor(binding.BindingID, reason,
-				fmt.Sprintf("field %s/%s has no observed values, so its type is unknown", binding.Dataset, binding.Field))
-			return "", Coverage{BindingID: binding.BindingID, Available: false, Reason: &reason}, &problem, nil
+		field, ok := datasetField(dataset, input.Field)
+		if !ok {
+			issues = append(issues, issueFor(bindingID, codeFieldUnknown,
+				fmt.Sprintf("factor input %s reads %s/%s, which the dataset does not have", input.Name, input.Dataset, input.Field)))
+			continue
 		}
-		return kind, Coverage{BindingID: binding.BindingID, Available: true}, nil, nil
+		switch {
+		case field.Unit == "":
+			issues = append(issues, issueFor(bindingID, codeUnitUndeclared,
+				fmt.Sprintf("factor input %s expects unit %q but %s/%s was never declared with a unit, so the contract cannot be verified",
+					input.Name, input.Unit, input.Dataset, input.Field)))
+		case field.Unit != input.Unit:
+			issues = append(issues, issueFor(bindingID, codeUnitMismatch,
+				fmt.Sprintf("factor input %s expects unit %q but %s/%s is declared in %q",
+					input.Name, input.Unit, input.Dataset, input.Field, field.Unit)))
+		}
 	}
-	reason := codeFieldUnknown
-	problem := issueFor(binding.BindingID, reason,
-		fmt.Sprintf("dataset %q has no field %q", binding.Dataset, binding.Field))
-	return "", Coverage{BindingID: binding.BindingID, Available: false, Reason: &reason}, &problem, nil
+	return issues, nil
+}
+
+// datasetField finds one declared field of a dataset by name. The catalog
+// reports declared fields first and observed ones after, so a match is a match
+// wherever it sits.
+func datasetField(dataset domain.Dataset, name string) (domain.Field, bool) {
+	for _, field := range dataset.Fields {
+		if field.Name == name {
+			return field, true
+		}
+	}
+	return domain.Field{}, false
 }
 
 // bindingResult is one resolved factor binding: its coverage, its findings and
@@ -414,6 +465,19 @@ func (s *Service) checkFactorBinding(
 		return bindingResult{
 			coverage: unavailable(binding.BindingID, domain.ErrorCode(err)),
 			issues:   []domain.Issue{issueFor(binding.BindingID, domain.ErrorCode(err), err.Error())},
+		}, nil
+	}
+	// The unit contract is checked before anything is computed: a factor input
+	// bound to a field whose declared unit is missing or different would silently
+	// treat the values as something they are not.
+	unitIssues, err := s.checkFactorInputUnits(ctx, binding.BindingID, spec)
+	if err != nil {
+		return bindingResult{}, err
+	}
+	if len(unitIssues) > 0 {
+		return bindingResult{
+			coverage: unavailable(binding.BindingID, unitIssues[0].Code),
+			issues:   unitIssues,
 		}, nil
 	}
 	windowFrom, dates, problem, err := deriveWindow(ctx, view, members, spec, params)

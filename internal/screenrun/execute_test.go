@@ -46,7 +46,7 @@ func barObservation(inst, close string, at time.Time) domain.Observation {
 	}
 }
 
-func newExecuteStack(t *testing.T) *executeStack {
+func newExecuteStack(t *testing.T, specs ...*factor.Spec) *executeStack {
 	t.Helper()
 	ctx := context.Background()
 	db, err := store.Open(filepath.Join(t.TempDir(), "metadata.db"))
@@ -68,7 +68,9 @@ func newExecuteStack(t *testing.T) *executeStack {
 		Declaration: &domain.DatasetDeclaration{
 			Frequency:             "daily",
 			AvailabilityPolicyRef: domain.VersionRef{ID: "availability", Version: "v1"},
-			Fields:                []domain.DatasetField{{Name: "close", Unit: "cny"}},
+			// The unit vocabulary is the platform's: the synthetic bar dataset
+			// declares close in "price", and factors declare the same.
+			Fields: []domain.DatasetField{{Name: "close", Unit: "price"}},
 		},
 	})
 	if err != nil {
@@ -89,6 +91,11 @@ func newExecuteStack(t *testing.T) *executeStack {
 	registry, err := factor.NewRegistry(ports.SHA256Checksummer{})
 	if err != nil {
 		t.Fatalf("new registry: %v", err)
+	}
+	for _, spec := range specs {
+		if err := registry.Register(spec); err != nil {
+			t.Fatalf("register %s: %v", spec.ID, err)
+		}
 	}
 	service, err := New(dataStore, registry, factor.NewCache())
 	if err != nil {

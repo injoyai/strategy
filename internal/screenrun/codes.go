@@ -19,6 +19,14 @@ const (
 	// codeFieldUnobserved: the field is declared but no value was ever
 	// observed, so its type is unknown and unit/kind checks cannot run.
 	codeFieldUnobserved = "screenrun.field_unobserved"
+	// codeUnitUndeclared: a factor input was bound to a field whose unit was
+	// never declared, so the factor's unit contract cannot be verified. An
+	// unverifiable contract is blocked rather than assumed.
+	codeUnitUndeclared = "screenrun.unit_undeclared"
+	// codeUnitMismatch: the field's declared unit is not the unit the factor
+	// input declares, so the values would be used under a unit they do not
+	// carry.
+	codeUnitMismatch = "screenrun.unit_mismatch"
 	// CodePreflightFailed: submission re-runs resolution and refuses to compute
 	// when any error-severity finding came out of it. The HTTP mapping needs
 	// the literal, so it is exported rather than repeated.
