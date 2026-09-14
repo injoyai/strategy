@@ -95,17 +95,19 @@
 
 ### 3.1 选股验收可执行化
 
+表中名称必须是仓库里真实存在的测试或测试文件；2026-09-14 已逐个核对，只有 SC-AC-11 的浏览器部分仍是待办。
+
 | 验收 ID | 自动化安排与通过判据 |
 | --- | --- |
-| SC-AC-01 | `ScreenCondition_TruthTableAndTypedOperators`：边界与嵌套真值表一致，非法类型/单位/操作符预检拒绝 |
-| SC-AC-02 | `ScreenCondition_UnknownNeverBecomesZeroOrNegatedTrue`：PE 空/负盈利/过期/窗口不足保持明确语义 |
+| SC-AC-01 | 真值表与边界：`internal/screening/truth_test.go` 的 `TestKleeneAnd`/`TestKleeneOr`/`TestKleeneNot`（三值）、`TestCompareOperatorsDecimal`、`TestRangeInclusivity`、`TestSetMembership`、`TestExplainNested`；类型/操作符拒绝：`validate_test.go` 的 `TestValidateUnknownInput`、`TestValidateBooleanGtMismatch`、`TestValidateDecimalWithStringLiteral`、`TestValidateRangeBounds`、`TestValidateSetInvalid`；单位：`internal/screenrun/units_test.go` + `internal/server/screenruns_test.go` 的 `TestScreenRunPreflightRejectsAMismatchedUnit` |
+| SC-AC-02 | `truth_test.go` 的 `TestKleeneNot`（unknown 不因 NOT 变 true）、`TestMissingReasonPropagation`（缺失保留原因、不当 0）、`TestCompareOperatorsDecimal`（含负值比较）；薄数据语义在 `internal/screenrun` 的 `tolerant_test.go` 与 `units_test.go` |
 | SC-AC-03 | `TestM1SPointInTimeImmutabilityAcceptance`：晚到修订（可用时间落在决策时点内）与决策时点后才可用的 bar 一并入新快照，旧 Run 行/rank/解释与快照 hash 不变；新快照看得见修订、看不见未来 bar |
-| SC-AC-04 | `ScreenRanking_GlobalStableAcrossPartitions`：同值、不同分片/分页结果一致，instrument_id 决胜 |
-| SC-AC-05 | `ScreenScore_PercentileEdgeCases`：单元素/全同值为 0.5，非法权重拒绝，缺分量不重分权 |
-| SC-AC-06 | `ScreenResult_EmptyAndShortTopN`：0/不足 N 成功且 summary 守恒，不补不合格项，展示缺失不改成员 |
-| SC-AC-07 | `ScreenRun_VersionAndContextImmutable`：换 snapshot/as_of 创建新 Run，旧方案/结果保持 |
+| SC-AC-04 | 全局排名与稳定决胜：`ranking_test.go` 的 `TestSortStableTieBreak`、`TestScoreTieAverageRankOrder`、`TestShuffleOracle`，`engine_test.go` 的 `TestEngineTopNNoPadding`、`TestEngineSelectionAll`、`TestEngineExcludedRowsSortedAfter`。引擎在**完整母体**上排名，不存在分片；行分页只切冻结结果（`internal/data/screenrun_test.go` 的 `TestScreenRunRowsPageInCanonicalOrder`），与排名解耦 |
+| SC-AC-05 | `ranking_test.go` 的 `TestScoreSingleCandidateHalf`、`TestScoreAllEqualHalf`、`TestScoreSmallerBetter`、`TestPercentileScaledValues`、`TestScoreZeroWeightEvidence`；权重校验 `validate_test.go` 的 `TestValidateWeightSum`/`TestValidateNegativeWeight`/`TestValidateZeroWeightAllowed`；缺分量不重分权：`engine_test.go` 的 `TestEngineMissingSortIsInsufficient` |
+| SC-AC-06 | 空态/少量/展示缺失：`engine_test.go` 的 `TestEngineEmptyPopulation`、`TestEngineConditionExcludedAll`、`TestEngineNoRankable`、`TestEngineTopNNoPadding`、`TestEngineDisplayMissingNoFailRun`、`TestEngineExcludeInstrument`、`TestEngineFailRunInsufficient`；端到端 0 结果与 `empty_reason`：M1S 纵向验收（`TestM1SScreeningVerticalSliceAcceptance` 第 7 段） |
+| SC-AC-07 | 换快照/时点 → 新 Run 且旧结果不变：`TestM1SPointInTimeImmutabilityAcceptance`（新快照 + 新池 → 新 Run；旧 Run 快照 hash/行/解释不变，并保留旧值）与 M1S 纵向验收第 6 段（同请求重跑 → 新 Run、逐行一致、旧 Run 汇总不变） |
 | SC-AC-08 | 选股侧已可执行：`TestCancelledScreenRunLeavesNoRunBehind`（取消 → 无 run 行、无结果）、`TestScreenRunHandlerLeavesUnresolvableRunsUnpublished`（不可解析 → job failed 且 run 不发布）、`TestScreenRunResultIsNotReadyBeforePublish`（未发布不给结果）、M1S 纵向验收的"重跑产生新 Run 且逐行一致"。Job 的并发/租约/fencing/恢复由 M0-05 的 `internal/jobs` 套件覆盖（选股复用同一机件，未另建） |
-| SC-AC-09 | `ScreenOutput_UsesFrozenFullScope`：保存池用完整入选，导出 scope 与冻结结果一致，不取当前页 |
+| SC-AC-09 | 保存池用完整入选：`internal/server/screenruns_test.go` 的 `TestSaveScreenUniverseCarriesSourceEvidence`、`TestSaveScreenUniverseRefusesAPartialList`（客户端传 members → `validation.unknown_field`）、`TestSaveScreenUniverseRefusesAnEmptySelection`；冻结结果 artifact/行：`internal/screenrun/handler_test.go` 的 `TestScreenRunHandlerPublishesTheFrozenResult`。**导出未交付**（受 SCREEN-DEC-02 门禁） |
 | SC-AC-10 | 选股侧已可执行（回测侧待 S4）：`screenrun` 拒绝 `Universe.source.as_of > req.as_of` 的名单用法（error 级 `screenrun.universe_selection_after_as_of`，422），quality limits 随 `source.quality_limits` 保留 |
 | SC-AC-11 | 浏览器：无手写 JSON 完成成功/预检失败/断线/键盘/窄屏，失败保留输入，空结果可解释 |
 | SC-AC-12 | `TestScreenRunSurfaceAnswersOnlyForItsOwnResult`：未知 run 404、不属于该 run 的标的不作答、另一 run 的游标 400、过期游标 422（同页游标在自己清单上仍 200，作为正向对照）。**工作区维度暂不可执行**——部署只有一个 workspace，故只覆盖实际存在的身份（run + 冻结结果） |
