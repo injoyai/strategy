@@ -99,7 +99,7 @@
 | --- | --- |
 | SC-AC-01 | `ScreenCondition_TruthTableAndTypedOperators`：边界与嵌套真值表一致，非法类型/单位/操作符预检拒绝 |
 | SC-AC-02 | `ScreenCondition_UnknownNeverBecomesZeroOrNegatedTrue`：PE 空/负盈利/过期/窗口不足保持明确语义 |
-| SC-AC-03 | `ScreenRun_FutureRevisionCannotChangePastResult`：修改 as_of 后的数据/成分/状态，旧名单、rank、解释 hash 不变 |
+| SC-AC-03 | `TestM1SPointInTimeImmutabilityAcceptance`：晚到修订（可用时间落在决策时点内）与决策时点后才可用的 bar 一并入新快照，旧 Run 行/rank/解释与快照 hash 不变；新快照看得见修订、看不见未来 bar |
 | SC-AC-04 | `ScreenRanking_GlobalStableAcrossPartitions`：同值、不同分片/分页结果一致，instrument_id 决胜 |
 | SC-AC-05 | `ScreenScore_PercentileEdgeCases`：单元素/全同值为 0.5，非法权重拒绝，缺分量不重分权 |
 | SC-AC-06 | `ScreenResult_EmptyAndShortTopN`：0/不足 N 成功且 summary 守恒，不补不合格项，展示缺失不改成员 |
