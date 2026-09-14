@@ -1,6 +1,6 @@
 # M2R 历史选股与手动模拟交易实施
 
-版本：0.1，2026-09-12。状态：RP-00 契约与 RP-01 纯状态机已落地，RP-02 起未开始。设计来源为 [历史选股与手动模拟交易设计](../historical-replay-trading-design.md)。REPLAY-01..10 / RP-AC-01..14 已进入主需求与 OpenAPI；RP-01 提供无 DB/网络/时钟的会话状态机与命令并发原语，不表示订单、页面、撮合或账本已经实现。
+版本：0.2，2026-09-14。状态：RP-00 契约、RP-01 纯状态机，以及 RP-02 的**时点隔离纯规则**已落地；RP-02 的服务层/持久化/端点未开始（见 §5）。设计来源为 [历史选股与手动模拟交易设计](../historical-replay-trading-design.md)。REPLAY-01..10 / RP-AC-01..14 已进入主需求与 OpenAPI；RP-01 提供无 DB/网络/时钟的会话状态机与命令并发原语，不表示订单、页面、撮合或账本已经实现。
 
 ## 1. 定位与系统边界
 
@@ -99,6 +99,16 @@ Session 不存在 paused/running 长租约。用户等待时停在 `awaiting_act
 `POST /replay-sessions/{id}/screens` 只接受 screener_ref 与 expected_revision；snapshot、universe、as_of/timezone、strict mode 由会话覆盖。ScreenRun 保存 source session/revision。会话推进后旧结果只读显示为历史名单，不替换当前选择。
 
 提交订单时验证 screen_run（若提供）属于同工作区/会话，snapshot/as_of/revision 不在未来；无论来源如何，都重新检查当前市场状态、资金与库存。用户也可对母池内未入选标的下单并记录 source=`manual`。
+
+已交付（`internal/replay/scope.go`，无 DB/网络/时钟）：
+
+- **`ReadScope` 由会话派生**：`ScopeOf(session, config, snapshotHash)` 一次性校验三者——会话必须携带**自己的**那份冻结 config（`ConfigHash` 比对，否则会把会话和别人的 universe 配在一起读）、snapshot 绑定与 manifest hash 必须存在、会话必须有决策时点；任一缺失即 fail-closed。`From` 是会话配置的历史起点，`AsOf`/`Revision` 取会话的**已提交**时点与修订，所以 advancing 期间的读仍停在 C(D)，不会看到"新价格 + 旧账户"的半状态——读因此不需要状态门。
+- **读范围不超过决策时点，且是拒绝而不是截断**：`Resolve(query)` 返回生效的半开 `[from, to)`。不带 range 的读等价于"会话历史到决策时点"（起点等于决策时点、没有历史可推导时明确报 `replay.range_invalid` 并提示显式给范围，而不是给一张没有原因的空图）；显式 range 只要 `to > as_of` 一律 `replay.future_read`——静默裁剪会让调用方以为拿到了完整窗口，这正是"先预取整段再隐藏未来"要防的行为；`to == as_of` 合法（右开）。查询缺 dataset/frequency/成员/字段、成员或字段为空、range 反向、会话不匹配分别有明确错误码（`replay.query_invalid`/`replay.session_mismatch`/`domain` 的区间码）。
+- **缓存键覆盖"能看到什么"**：`CacheKey(query, computationVersion)` 先解析再取键，键含 session、snapshot hash、as_of、revision、**生效区间**、dataset/frequency、排序去重后的成员与字段、以及计算版本；等于同一集合的不同列出顺序共享键，换 revision/时点/窗口/计算版本必然换键。空计算版本被拒（否则昨天的推导会被当成今天的版本回读）。
+- **会话内选股只由会话决定输入**：`ScreenRunInputsOf(session, config, command, screenerRef)` 产出 `ScreenInputs`，其 snapshot/universe/as_of/timezone/strict 全部来自会话与冻结 config，调用方只能给 screener 版本引用与 command；并且要求 `expected_revision` 匹配、命令 kind 为新增的 `CmdScreen`、状态为 `awaiting_action`（advance 期间不得选股）。结构上就没有可提交的未来时点。
+- 测试：`internal/replay/scope_test.go`（config 配对/缺 snapshot hash/无决策时点、派生区间、边界恰在决策时点合法而 1ns 之后拒绝、整段在未来拒绝、七类畸形查询、无历史时的显式范围、缓存键的集合语义与 revision/时点/版本分离、选股输入全部来自会话且拒绝错 kind/错 revision/非 awaiting_action/无版本引用）。
+
+未交付：会话与命令的持久化（`replay_sessions`/`replay_commands`/`replay_steps` 等，见 §8.1）、`ReplayService` 服务层与 `POST/GET /replay-sessions*` 端点、K 线/财务读接口的 DataView 装配，以及浏览器页面。这些都被 **model registry（M2-02）** 挡住：`ReplayConfig` 要求 `market_rules`/`fill_model`/`cost_model`/`valuation_policy`/`metrics_policy` 的 `ModelBinding`，契约明确无隐式默认值，而模型注册表受 DEC-01/02、DEC-05/06、REPLAY-DEC-01..03 门禁、尚未存在。上面这些纯规则不依赖任何模型，因此可以先落地。
 
 ## 6. RP-03 人工订单、资金与库存预留
 
