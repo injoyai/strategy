@@ -557,7 +557,8 @@ paths["/artifacts/{id}/content"]["get"]["responses"]["200"] = {
 
 operation("/screeners", "get", "listScreeners", "List screener versions", "Screener", paging=True)
 operation("/screeners", "post", "createScreener", "Create an immutable screener version", "Screener", "ScreenerCreate", "201")
-operation("/screeners/{id}", "get", "getScreener", "Read a specific immutable screener version", "Screener")
+operation("/screeners/{id}", "get", "getScreener", "Read a specific immutable screener version", "Screener",
+          extra=[param("version", "query", ID, True)])
 operation("/screen-runs", "post", "startScreenRun", "Start a screening run job with frozen inputs", "Job", "ScreenRunCreate", "202")
 operation("/screen-runs", "get", "listScreenRuns", "List screening runs", "ScreenRun", paging=True,
           extra=[param("screener_id", "query", ID), param("state", "query", S["Job"]["properties"]["state"])])

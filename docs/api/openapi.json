@@ -6969,6 +6969,16 @@
         ],
         "parameters": [
           {
+            "name": "version",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          {
             "name": "id",
             "in": "path",
             "required": true,

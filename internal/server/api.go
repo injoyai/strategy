@@ -104,6 +104,9 @@ func NewAPI(opts Options) *API {
 	}
 	if opts.Data != nil {
 		api.RegisterData()
+		// Screener versions persist through the same store, so the surface
+		// travels with it rather than with the research orchestration.
+		api.RegisterScreeners()
 	}
 	if opts.Artifacts != nil {
 		api.RegisterImports()

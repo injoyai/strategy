@@ -7759,7 +7759,9 @@ export interface operations {
     };
     getScreener: {
         parameters: {
-            query?: never;
+            query: {
+                version: string;
+            };
             header?: never;
             path: {
                 id: string;

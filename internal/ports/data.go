@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/injoyai/strategy/internal/domain"
+	"github.com/injoyai/strategy/internal/screening"
 )
 
 // DataProvider is a bound, versioned connection to one upstream data source.
@@ -120,6 +121,12 @@ type DataStore interface {
 	CreateUniverseVersion(context.Context, domain.UniverseVersionRequest) (domain.UniverseVersion, error)
 	GetUniverseVersion(context.Context, domain.ID) (domain.UniverseVersion, error)
 	ListUniverseVersions(context.Context, UniverseFilter) (domain.PageResult[domain.UniverseVersion], error)
+	// Screener versions follow the same immutable-save semantics: every save
+	// mints a new revision, and (id, version) addresses exactly one frozen
+	// rule set.
+	CreateScreenerVersion(context.Context, screening.VersionRequest) (screening.Version, error)
+	GetScreenerVersion(context.Context, domain.ID, domain.ID) (screening.Version, error)
+	ListScreenerVersions(context.Context, ScreenerFilter) (domain.PageResult[screening.Version], error)
 }
 
 // DataView is an immutable, point-in-time read bound to a snapshot and an

@@ -50,6 +50,17 @@ func StatusForError(code string) int {
 		return http.StatusNotFound
 	case "factor.preflight_failed":
 		return http.StatusUnprocessableEntity
+	// M1S screener definition failures. The request parsed, but the rule set
+	// violates its contract (or a stored definition cannot be rebuilt), which
+	// is exactly the 422 slot. Engine-assembly codes
+	// (screening.invalid_policy, screening.duplicate_instrument) are
+	// deliberately absent: they signal a server-side pool bug, and the
+	// fail-closed default must keep them off the client-error class.
+	case "screening.definition_invalid",
+		"screening.binding_invalid",
+		"screening.child_required",
+		"screening.input_unknown":
+		return http.StatusUnprocessableEntity
 	case domain.CodeAuthUnauthorized:
 		return http.StatusUnauthorized
 	case domain.CodeAuthForbidden:
