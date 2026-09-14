@@ -364,16 +364,31 @@ func (s *Store) Append(ctx context.Context, in ports.BatchInput) (domain.IngestR
 	if len(in.RawManifest) > 0 {
 		rawManifest = []byte(in.RawManifest)
 	}
+	// The declaration is validated before it is stored: a half-declared schema
+	// (a field without a unit, or no policy reference) would silently weaken
+	// every later unit check, so it is rejected at the write boundary instead.
+	declarationJSON := ""
+	if in.Declaration != nil {
+		if err := in.Declaration.Validate(); err != nil {
+			return domain.IngestReceipt{}, err
+		}
+		encoded, err := marshalJSON(in.Declaration)
+		if err != nil {
+			return domain.IngestReceipt{}, err
+		}
+		declarationJSON = string(encoded)
+	}
 
 	err = s.withTx(ctx, func(tx *sql.Tx) error {
 		_, err := tx.ExecContext(ctx, `
 			INSERT INTO batches (
 				id, workspace, job_id, request_evidence, raw_manifest,
 				normalized_manifest, quality_status, checksums, created_at,
-				dataset_id, frequency, row_count, checksum, issues, ready
-			) VALUES (?, ?, ?, NULL, ?, NULL, ?, NULL, ?, ?, ?, ?, ?, ?, 1)`,
+				dataset_id, frequency, row_count, checksum, issues, ready,
+				declaration_json
+			) VALUES (?, ?, ?, NULL, ?, NULL, ?, NULL, ?, ?, ?, ?, ?, ?, 1, ?)`,
 			batchID, workspaceDefault, in.JobID, rawManifest, worstSeverity(in.Issues),
-			createdAt.UnixNano(), in.Dataset, in.Frequency, len(rows), checksum, issuesJSON)
+			createdAt.UnixNano(), in.Dataset, in.Frequency, len(rows), checksum, issuesJSON, declarationJSON)
 		if err != nil {
 			return fmt.Errorf("data: insert batch: %w", err)
 		}

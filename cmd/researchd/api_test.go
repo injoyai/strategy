@@ -87,6 +87,7 @@ func TestNewAPIMountsEverySurface(t *testing.T) {
 		"/api/v1/providers",
 		"/api/v1/snapshots",
 		"/api/v1/jobs",
+		"/api/v1/datasets",  // M0 catalog, mounted with the data store
 		"/api/v1/universes", // M1-06/M1-09, mounted only with the research service
 		"/api/v1/factors",   // M1-07/M1-09, mounted only with the research service
 		"/api/v1/screeners", // M1S S2, mounted with the data store

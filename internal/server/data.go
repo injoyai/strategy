@@ -82,6 +82,7 @@ func (a *API) RegisterData() {
 	a.Handle(http.MethodGet, "/snapshots/{id}", a.getSnapshot, RouteOptions{})
 	a.Handle(http.MethodPost, "/ingestions", a.startIngestion, RouteOptions{IdempotencyRequired: true})
 	a.Handle(http.MethodPost, "/data/query", a.queryData, RouteOptions{})
+	a.RegisterDatasets()
 }
 
 func (a *API) requireDataJobs(w http.ResponseWriter, r *http.Request) bool {

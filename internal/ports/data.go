@@ -50,9 +50,13 @@ type Normalizer interface {
 }
 
 // BatchInput is one ingest unit handed to DataStore.Append: the normalized
-// rows plus the quality issues the pipeline derived for them. The store
-// persists evidence and derives only aggregate labels (worst severity); it
-// never re-derives, repairs or drops individual findings.
+// rows plus the quality issues the pipeline derived for them, and the dataset
+// declaration the ingestion made (field units and the availability policy).
+// The store persists evidence and derives only aggregate labels (worst
+// severity); it never re-derives, repairs or drops individual findings.
+// Declaration is optional so an import that declares no mapping can still
+// append, and a nil declaration simply leaves the dataset catalog without a
+// declared unit for those fields.
 type BatchInput struct {
 	JobID        domain.ID
 	Dataset      string
@@ -60,6 +64,17 @@ type BatchInput struct {
 	Observations []domain.Observation
 	Issues       []domain.Issue
 	RawManifest  json.RawMessage
+	Declaration  *domain.DatasetDeclaration
+}
+
+// DatasetFilter is the list query for the dataset catalog, with the same
+// Sort / AfterID / Limit semantics as BatchFilter. Q is a substring filter on
+// the dataset name.
+type DatasetFilter struct {
+	Q       string
+	Sort    string
+	AfterID string
+	Limit   int
 }
 
 // BatchFilter is the list query for batches. Sort accepts "id" (ascending)
@@ -121,6 +136,10 @@ type DataStore interface {
 	CreateUniverseVersion(context.Context, domain.UniverseVersionRequest) (domain.UniverseVersion, error)
 	GetUniverseVersion(context.Context, domain.ID) (domain.UniverseVersion, error)
 	ListUniverseVersions(context.Context, UniverseFilter) (domain.PageResult[domain.UniverseVersion], error)
+	// The dataset catalog: the declared schema, observed coverage and recorded
+	// quality findings per dataset name.
+	GetDataset(context.Context, domain.ID) (domain.Dataset, error)
+	ListDatasets(context.Context, DatasetFilter) (domain.PageResult[domain.Dataset], error)
 	// Screener versions follow the same immutable-save semantics: every save
 	// mints a new revision, and (id, version) addresses exactly one frozen
 	// rule set.

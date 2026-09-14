@@ -1219,10 +1219,11 @@ export interface components {
             retryable: boolean;
             issues: components["schemas"]["Issue"][];
         };
+        /** @description unknown means the field is declared but no value was ever observed, so its type is not known; it is never guessed. An undeclared field observed in data carries an empty unit. */
         Field: {
             name: string;
             /** @enum {string} */
-            type: "decimal" | "number" | "string" | "boolean" | "timestamp";
+            type: "decimal" | "number" | "string" | "boolean" | "timestamp" | "unknown";
             unit: string;
             nullable: boolean;
             description?: string;

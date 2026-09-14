@@ -137,13 +137,17 @@ func (s *Service) Preflight(ctx context.Context, req Request) (*Preflight, error
 	}
 
 	result := &Preflight{}
-	result.Issues = append(result.Issues, screening.Validate(def, nil, screening.DefaultLimits())...)
-	coverage, coverageIssues, windowDates, err := s.resolveBindings(ctx, def, view, members, universe, snapshot)
+	catalog, coverage, bindingIssues, windowDates, err := s.resolveBindings(ctx, def, view, members, universe, snapshot)
 	if err != nil {
 		return nil, err
 	}
+	// Validation runs with the resolved catalog so literal kinds and operators
+	// are checked against what the inputs actually are; a binding the catalog
+	// cannot type stays an explicit unknown and its kind checks are skipped
+	// rather than assumed.
+	result.Issues = append(result.Issues, screening.Validate(def, catalog, screening.DefaultLimits())...)
 	result.Coverage = coverage
-	result.Issues = append(result.Issues, coverageIssues...)
+	result.Issues = append(result.Issues, bindingIssues...)
 	if len(members) == 0 {
 		result.Issues = append(result.Issues, domain.Issue{
 			Code:     codeEmptyPopulation,
@@ -165,9 +169,10 @@ func (s *Service) Preflight(ctx context.Context, req Request) (*Preflight, error
 	return result, nil
 }
 
-// resolveBindings resolves every declared binding and records why one is
-// unusable. It returns the highest date count any factor window covered, which
-// the scan estimate is built from.
+// resolveBindings resolves every declared binding, records why one is unusable
+// and returns the input catalog the rule set is validated against. It also
+// returns the highest date count any factor window covered, which the scan
+// estimate is built from.
 func (s *Service) resolveBindings(
 	ctx context.Context,
 	def screening.Definition,
@@ -175,40 +180,102 @@ func (s *Service) resolveBindings(
 	members []domain.ID,
 	universe domain.UniverseVersion,
 	snapshot domain.Snapshot,
-) ([]Coverage, []domain.Issue, int, error) {
+) (screening.InputTypes, []Coverage, []domain.Issue, int, error) {
+	catalog := screening.InputTypes{}
 	var coverage []Coverage
 	var issues []domain.Issue
-	unresolvableFields := make([]domain.ID, 0)
 	windowDates := 0
 	for _, binding := range def.InputBindings {
 		switch binding.Kind {
 		case screening.BindingFactor:
+			// A factor's output kind is not declared anywhere (its spec carries a
+			// unit, not a value kind), so it enters the catalog as an explicit
+			// unknown: the validator then skips kind checks for it instead of
+			// assuming decimal.
+			catalog[binding.BindingID] = ""
 			cov, bindingIssues, dates, err := s.checkFactorBinding(ctx, binding, view, members, universe, snapshot)
 			if err != nil {
-				return nil, nil, 0, err
+				return nil, nil, nil, 0, err
 			}
 			coverage = append(coverage, cov)
 			issues = append(issues, bindingIssues...)
 			if dates > windowDates {
 				windowDates = dates
 			}
+		case screening.BindingField:
+			kind, cov, problem, err := s.checkFieldBinding(ctx, binding)
+			if err != nil {
+				return nil, nil, nil, 0, err
+			}
+			if problem != nil {
+				issues = append(issues, *problem)
+			} else {
+				catalog[binding.BindingID] = kind
+			}
+			coverage = append(coverage, cov)
 		default:
-			// Field and unknown bindings have no input catalog to resolve
-			// against, so the honest answer is "cannot verify", never "fine".
+			// An unknown binding kind cannot be resolved against anything; the
+			// definition validator reports the kind itself as invalid.
 			reason := codeCatalogUnavailable
 			coverage = append(coverage, Coverage{BindingID: binding.BindingID, Available: false, Reason: &reason})
-			unresolvableFields = append(unresolvableFields, binding.BindingID)
 		}
 	}
-	if len(unresolvableFields) > 0 {
-		issues = append(issues, domain.Issue{
-			Code:     codeCatalogUnavailable,
-			Path:     "input_bindings",
-			Message:  "field bindings cannot be resolved: dataset field metadata (units in particular) is not persisted, so no input catalog exists yet",
-			Severity: domain.SeverityWarning,
-		})
+	return catalog, coverage, issues, windowDates, nil
+}
+
+// checkFieldBinding resolves one field binding against the dataset catalog: the
+// dataset must exist and the field must be known there. The returned kind is
+// empty when the field is known but its values were never observed — the
+// catalog reports "unknown" for that, and an unknown kind must not become a
+// silent assumption.
+func (s *Service) checkFieldBinding(ctx context.Context, binding screening.InputBinding) (domain.ValueKind, Coverage, *domain.Issue, error) {
+	dataset, err := s.data.GetDataset(ctx, domain.ID(binding.Dataset))
+	if err != nil {
+		if domain.ErrorCode(err) != domain.CodeResourceNotFound {
+			return "", Coverage{}, nil, err
+		}
+		reason := codeDatasetUnknown
+		problem := issueFor(binding.BindingID, reason,
+			fmt.Sprintf("dataset %q referenced by binding %s does not exist", binding.Dataset, binding.BindingID))
+		return "", Coverage{BindingID: binding.BindingID, Available: false, Reason: &reason}, &problem, nil
 	}
-	return coverage, issues, windowDates, nil
+	for _, field := range dataset.Fields {
+		if field.Name != binding.Field {
+			continue
+		}
+		kind := valueKindOf(field.Type)
+		if kind == "" {
+			reason := codeFieldUnobserved
+			problem := issueFor(binding.BindingID, reason,
+				fmt.Sprintf("field %s/%s has no observed values, so its type is unknown", binding.Dataset, binding.Field))
+			return "", Coverage{BindingID: binding.BindingID, Available: false, Reason: &reason}, &problem, nil
+		}
+		return kind, Coverage{BindingID: binding.BindingID, Available: true}, nil, nil
+	}
+	reason := codeFieldUnknown
+	problem := issueFor(binding.BindingID, reason,
+		fmt.Sprintf("dataset %q has no field %q", binding.Dataset, binding.Field))
+	return "", Coverage{BindingID: binding.BindingID, Available: false, Reason: &reason}, &problem, nil
+}
+
+// valueKindOf maps a catalog field type to the value kind the rule engine
+// compares literals against. An unknown type has no kind, which is how the
+// validator learns to skip it rather than guess.
+func valueKindOf(fieldType domain.FieldType) domain.ValueKind {
+	switch fieldType {
+	case domain.FieldDecimal:
+		return domain.ValueDecimal
+	case domain.FieldNumber:
+		return domain.ValueNumber
+	case domain.FieldString:
+		return domain.ValueString
+	case domain.FieldBoolean:
+		return domain.ValueBoolean
+	case domain.FieldTimestamp:
+		return domain.ValueTimestamp
+	default:
+		return ""
+	}
 }
 
 // checkFactorBinding verifies one factor binding end to end: the version is

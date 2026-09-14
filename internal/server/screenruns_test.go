@@ -236,8 +236,10 @@ func TestScreenRunPreflightResolvesFrozenInputs(t *testing.T) {
 				t.Fatalf("factor binding coverage = %+v, want available", c)
 			}
 		case "px":
-			if c.Available || c.Reason == nil || *c.Reason != "screenrun.catalog_unavailable" {
-				t.Fatalf("field binding coverage = %+v, want unavailable with the catalog reason", c)
+			// The dataset catalog resolves bar/close from the seeded rows, so the
+			// field binding is verifiable and contributes a literal kind check.
+			if !c.Available || c.Reason != nil {
+				t.Fatalf("field binding coverage = %+v, want available", c)
 			}
 		}
 	}
@@ -321,6 +323,56 @@ func TestScreenRunPreflightReportsInsufficientHistory(t *testing.T) {
 			}
 		}
 	}
+}
+
+// TestScreenRunPreflightChecksLiteralAgainstCatalogType is the payoff of the
+// dataset catalog: the condition's literal kind is compared against the field's
+// observed type, so a boolean threshold on a decimal field is a finding instead
+// of a runtime surprise.
+func TestScreenRunPreflightChecksLiteralAgainstCatalogType(t *testing.T) {
+	stack := newScreenStack(t)
+	typed := saveScreener(t, stack.handler, "screenrun-seed-typed", `{
+      "name": "typed-pool",
+      "input_bindings": [
+        {"binding_id":"px","kind":"field","dataset":"bar","field":"close"}
+      ],
+      "condition_tree": {"node_id":"gt","kind":"compare","input":{"binding_id":"px"},"operator":"gt","value":{"kind":"boolean","value":"true"}},
+      "ranking": {"mode":"sort","fields":[{"input":{"binding_id":"px"},"direction":"desc"}]},
+      "selection": {"mode":"all"}
+    }`)
+
+	body := []byte(fmt.Sprintf(`{
+      "screener_ref": {"id": %q, "version": %q},
+      "snapshot_id": %q,
+      "universe_ref": {"id": %q, "version": %q},
+      "as_of": "2026-01-15T00:00:00Z",
+      "decision_timezone": "Asia/Shanghai",
+      "strict_pit": false,
+      "required_value_policy": "exclude_instrument"
+    }`, typed.ID, typed.Version, stack.snapshot.ID, stack.universe.ID, stack.universe.DefinitionHash))
+	rec := stack.preflight(t, body)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("preflight status = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	var out struct {
+		Valid  bool `json:"valid"`
+		Issues []struct {
+			Code     string `json:"code"`
+			Severity string `json:"severity"`
+		} `json:"issues"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("decode preflight: %v", err)
+	}
+	if out.Valid {
+		t.Fatalf("preflight = %s, want invalid: a boolean threshold cannot compare a decimal field", rec.Body.String())
+	}
+	for _, issue := range out.Issues {
+		if issue.Code == "screening.literal_kind_mismatch" && issue.Severity == "error" {
+			return
+		}
+	}
+	t.Fatalf("issues = %+v, want an error-severity screening.literal_kind_mismatch", out.Issues)
 }
 
 func TestScreenRunPreflightRejectsUnpinnedUniverse(t *testing.T) {

@@ -57,8 +57,9 @@ S["Issue"] = obj({"code": TEXT, "path": TEXT, "message": TEXT,
                  ["code", "path", "message", "severity"])
 S["Error"] = obj({"code": TEXT, "message": TEXT, "request_id": ID, "retryable": BOOL,
                   "issues": array(ref("Issue"))}, ["code", "message", "request_id", "retryable", "issues"])
-S["Field"] = obj({"name": TEXT, "type": enum("decimal", "number", "string", "boolean", "timestamp"),
-                  "unit": TEXT, "nullable": BOOL, "description": TEXT}, ["name", "type", "unit", "nullable"])
+S["Field"] = obj({"name": TEXT, "type": enum("decimal", "number", "string", "boolean", "timestamp", "unknown"),
+                  "unit": TEXT, "nullable": BOOL, "description": TEXT}, ["name", "type", "unit", "nullable"],
+                 description="unknown means the field is declared but no value was ever observed, so its type is not known; it is never guessed. An undeclared field observed in data carries an empty unit.")
 S["Capability"] = obj({"dataset": TEXT, "fields": array(ref("Field")), "frequencies": array(TEXT),
                        "coverage": nullable(ref("Range")), "pit_level": enum("verified", "date_only", "unverified"),
                        "max_page_size": {"type": "integer", "minimum": 1}},

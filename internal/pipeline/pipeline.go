@@ -72,6 +72,27 @@ type collected struct {
 	pages        []pageEvidence
 }
 
+// datasetDeclaration turns the ingestion's declared field mapping into the
+// dataset schema persisted with the batch. The mapping is the only place a
+// normalized field's unit is ever declared, so it is captured here or lost: an
+// ingestion that declares no mapping yields no declaration rather than a
+// guessed one, and a contradictory mapping (one target field, two units) is
+// rejected when the batch is appended instead of being silently collapsed.
+func datasetDeclaration(req domain.IngestionRequest) *domain.DatasetDeclaration {
+	if len(req.Mapping) == 0 {
+		return nil
+	}
+	fields := make([]domain.DatasetField, 0, len(req.Mapping))
+	for _, mapping := range req.Mapping {
+		fields = append(fields, domain.DatasetField{Name: mapping.TargetField, Unit: mapping.TargetUnit})
+	}
+	return &domain.DatasetDeclaration{
+		Frequency:             req.Frequency,
+		AvailabilityPolicyRef: req.AvailabilityPolicyRef,
+		Fields:                fields,
+	}
+}
+
 func (c *collected) manifestBytes() json.RawMessage {
 	raw, err := json.Marshal(c.pages)
 	if err != nil {
@@ -327,6 +348,7 @@ func (h *Handlers) IngestionRun(ctx context.Context, task *jobs.Task) error {
 		Observations: main.observations,
 		Issues:       issues,
 		RawManifest:  main.manifestBytes(),
+		Declaration:  datasetDeclaration(req),
 	})
 	if err != nil {
 		return err

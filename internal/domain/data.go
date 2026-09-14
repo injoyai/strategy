@@ -36,6 +36,9 @@ const (
 	FieldString    FieldType = "string"
 	FieldBoolean   FieldType = "boolean"
 	FieldTimestamp FieldType = "timestamp"
+	// FieldUnknown is the honest answer for a field that is declared but whose
+	// values were never observed: its type is unknown, not a guess.
+	FieldUnknown FieldType = "unknown"
 )
 
 // Field describes one column of a dataset schema. Unit is mandatory even for
@@ -47,6 +50,72 @@ type Field struct {
 	Unit        string    `json:"unit"`
 	Nullable    bool      `json:"nullable"`
 	Description string    `json:"description,omitempty"`
+}
+
+// DatasetDeclaration is what one ingestion declared about its dataset: the
+// field mapping's target units and the availability policy the operator chose.
+// It is persisted with the batch because that moment is the only time the
+// declaration exists — the observation rows themselves carry values without
+// units, so a field's unit cannot be recovered from data afterwards.
+type DatasetDeclaration struct {
+	Frequency             string         `json:"frequency"`
+	AvailabilityPolicyRef VersionRef     `json:"availability_policy_ref"`
+	Fields                []DatasetField `json:"fields"`
+}
+
+// Validate checks the declaration is complete enough to be the dataset's schema.
+func (d DatasetDeclaration) Validate() error {
+	if d.Frequency == "" {
+		return NewError(CodeValidationInvalid, "dataset: declaration frequency is required")
+	}
+	if err := d.AvailabilityPolicyRef.Validate(); err != nil {
+		return err
+	}
+	if len(d.Fields) == 0 {
+		return NewError(CodeValidationInvalid, "dataset: declaration requires at least one field")
+	}
+	seen := map[string]bool{}
+	for i, field := range d.Fields {
+		if field.Name == "" {
+			return NewError(CodeValidationInvalid, "dataset: declaration fields[%d].name is required", i)
+		}
+		if field.Unit == "" {
+			// A declared field without a unit would make unit-mismatched
+			// arithmetic undetectable, which is exactly what the declaration
+			// exists to prevent.
+			return NewError(CodeValidationInvalid, "dataset: declaration fields[%d].unit is required for %q", i, field.Name)
+		}
+		// One target field carries exactly one unit: a mapping that declares two
+		// units for the same field is contradictory, not a later override.
+		if seen[field.Name] {
+			return NewError(CodeValidationInvalid, "dataset: declaration field %q is declared more than once", field.Name)
+		}
+		seen[field.Name] = true
+	}
+	return nil
+}
+
+// DatasetField is one declared field: the normalized name and the unit its
+// values are stored in.
+type DatasetField struct {
+	Name string `json:"name"`
+	Unit string `json:"unit"`
+}
+
+// Dataset is one dataset's capability record: the declared schema, the coverage
+// its rows actually span and the quality findings recorded with its batches.
+// Type comes from the stored values (a Value carries its kind); unit comes from
+// the persisted declaration; a field observed in data but never declared is
+// reported with an empty unit rather than an assumed one.
+type Dataset struct {
+	ID                    ID         `json:"id"`
+	Name                  string     `json:"name"`
+	SchemaVersion         string     `json:"schema_version"`
+	Fields                []Field    `json:"fields"`
+	NaturalKey            []string   `json:"natural_key"`
+	AvailabilityPolicyRef VersionRef `json:"availability_policy_ref"`
+	Coverage              *Interval  `json:"coverage"`
+	QualityIssues         []Issue    `json:"quality_issues"`
 }
 
 // PITLevel declares how strongly a dataset's point-in-time evidence is

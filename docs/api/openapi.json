@@ -10816,7 +10816,8 @@
               "number",
               "string",
               "boolean",
-              "timestamp"
+              "timestamp",
+              "unknown"
             ]
           },
           "unit": {
@@ -10835,7 +10836,8 @@
           "unit",
           "nullable"
         ],
-        "additionalProperties": false
+        "additionalProperties": false,
+        "description": "unknown means the field is declared but no value was ever observed, so its type is not known; it is never guessed. An undeclared field observed in data carries an empty unit."
       },
       "Capability": {
         "type": "object",
