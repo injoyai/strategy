@@ -11,6 +11,8 @@ import (
 	"net/http"
 
 	"github.com/injoyai/strategy/internal/domain"
+	"github.com/injoyai/strategy/internal/screening"
+	"github.com/injoyai/strategy/internal/screenrun"
 )
 
 // errorEnvelope mirrors the Error schema in docs/api/openapi.json.
@@ -66,7 +68,7 @@ func StatusForError(code string) int {
 		"screening.required_value_missing",
 		// Submission re-resolves the frozen inputs and refuses to compute when
 		// any error-severity finding comes out of it.
-		"screenrun.preflight_failed":
+		screenrun.CodePreflightFailed:
 		return http.StatusUnprocessableEntity
 	case domain.CodeAuthUnauthorized:
 		return http.StatusUnauthorized
@@ -79,7 +81,11 @@ func StatusForError(code string) int {
 	case domain.CodeResourceConflict,
 		domain.CodeResourceVersionMismatch,
 		domain.CodeIdempotencyConflict,
-		domain.CodeIdempotencyKeyExpired:
+		domain.CodeIdempotencyKeyExpired,
+		// A run's result is immutable and only becomes readable when it
+		// publishes; reading it earlier is a conflict with the run's state, not
+		// a missing resource.
+		screening.CodeResultNotReady:
 		return http.StatusConflict
 	case domain.CodePaginationCursorExpired:
 		return http.StatusUnprocessableEntity

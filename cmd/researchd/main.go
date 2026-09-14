@@ -50,6 +50,10 @@ const httpShutdownTimeout = 10 * time.Second
 // The research service is built here because /universes, /factors,
 // /factor-runs and /factor-analyses are only mounted when it is supplied —
 // without it the whole M1-09 surface is a routing miss.
+//
+// The screening-run service is returned as well: the worker needs the same
+// instance the API uses, so a run submitted over HTTP is executed with
+// exactly the resolution rules the preflight reported.
 func newAPI(
 	log *slog.Logger,
 	auth server.Authenticator,
@@ -58,23 +62,23 @@ func newAPI(
 	dataStore *data.Store,
 	art *artifacts.Store,
 	providers []server.ProviderRegistration,
-) (*server.API, error) {
+) (*server.API, *screenrun.Service, error) {
 	registry, err := factor.NewRegistry(ports.SHA256Checksummer{})
 	if err != nil {
-		return nil, fmt.Errorf("build factor registry: %w", err)
+		return nil, nil, fmt.Errorf("build factor registry: %w", err)
 	}
 	if err := factor.RegisterDefaults(registry); err != nil {
-		return nil, fmt.Errorf("register default factors: %w", err)
+		return nil, nil, fmt.Errorf("register default factors: %w", err)
 	}
 	researchService, err := research.New(dataStore, registry, factor.NewCache(), art, ports.SHA256Checksummer{})
 	if err != nil {
-		return nil, fmt.Errorf("build research service: %w", err)
+		return nil, nil, fmt.Errorf("build research service: %w", err)
 	}
 	screenRuns, err := screenrun.New(dataStore, registry, factor.NewCache())
 	if err != nil {
-		return nil, fmt.Errorf("build screening run service: %w", err)
+		return nil, nil, fmt.Errorf("build screening run service: %w", err)
 	}
-	return server.NewAPI(server.Options{
+	api := server.NewAPI(server.Options{
 		Log:         log,
 		Auth:        auth,
 		Idempotency: store.NewIdempotencyStore(db),
@@ -84,7 +88,37 @@ func newAPI(
 		Research:    researchService,
 		ScreenRuns:  screenRuns,
 		Providers:   providers,
-	}), nil
+	})
+	return api, screenRuns, nil
+}
+
+// newRunHandlers merges the job kinds of every package that can queue work into
+// the map the worker loop claims from. A kind a POST endpoint can enqueue but
+// no handler claims would leave its job queued forever, so the merge lives in a
+// function the wiring test can inspect.
+func newRunHandlers(
+	jstore *jobs.Store,
+	dataStore *data.Store,
+	art *artifacts.Store,
+	screenRuns *screenrun.Service,
+) map[string]jobs.HandlerFunc {
+	handlers := (&pipeline.Handlers{
+		Jobs:      jstore,
+		Data:      dataStore,
+		Artifacts: art,
+		Factories: map[domain.ID]ports.ProviderFactory{
+			synthetic.ProviderID: synthetic.Factory{},
+		},
+	}).Map()
+	for kind, handler := range (&screenrun.Handlers{
+		Jobs:      jstore,
+		Runs:      dataStore,
+		Service:   screenRuns,
+		Artifacts: art,
+	}).Map() {
+		handlers[kind] = handler
+	}
+	return handlers
 }
 
 func main() {
@@ -157,20 +191,11 @@ func run() error {
 		return fmt.Errorf("open synthetic provider: %w", err)
 	}
 
-	api, err := newAPI(log, auth, db, jstore, dataStore, art, []server.ProviderRegistration{
+	api, screenRuns, err := newAPI(log, auth, db, jstore, dataStore, art, []server.ProviderRegistration{
 		{Provider: syntheticProvider, Factory: synthetic.Factory{}},
 	})
 	if err != nil {
 		return err
-	}
-
-	handlers := &pipeline.Handlers{
-		Jobs:      jstore,
-		Data:      dataStore,
-		Artifacts: art,
-		Factories: map[domain.ID]ports.ProviderFactory{
-			synthetic.ProviderID: synthetic.Factory{},
-		},
 	}
 
 	var pool worker.Pool
@@ -180,7 +205,7 @@ func run() error {
 	loop := &jobs.Loop{
 		Store:    jstore,
 		Owner:    fmt.Sprintf("researchd-%d", os.Getpid()),
-		Handlers: handlers.Map(),
+		Handlers: newRunHandlers(jstore, dataStore, art, screenRuns),
 		Log:      log,
 	}
 	pool.Go(ctx, loop.Run)

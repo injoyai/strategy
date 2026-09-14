@@ -75,12 +75,14 @@ type Preflight struct {
 	EstimatedRows     *int
 }
 
-// Result is one computed screening run: the mutually exclusive stage counts and
+// Result is one computed screening run: the mutually exclusive stage counts,
 // the frozen rows, in the engine's canonical order (selected and rankable rows
-// by rank, then excluded rows by instrument).
+// by rank, then excluded rows by instrument), and the display-column
+// descriptors derived from those rows.
 type Result struct {
 	Summary screening.Summary
 	Rows    []screening.Row
+	Columns []domain.Field
 }
 
 // ScoringPolicyVersion names the versioned scoring policy every run is computed
@@ -182,7 +184,7 @@ func (s *Service) Execute(ctx context.Context, req Request) (*Result, error) {
 		return nil, err
 	}
 	if res.hasErrors() {
-		return nil, domain.NewError(codePreflightFailed, "screenrun: preflight failed: %s", summarizeIssues(res.issues))
+		return nil, domain.NewError(CodePreflightFailed, "screenrun: preflight failed: %s", SummarizeIssues(res.issues))
 	}
 	universe, err := s.instrumentInputs(ctx, res)
 	if err != nil {
@@ -192,7 +194,11 @@ func (s *Service) Execute(ctx context.Context, req Request) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Result{Summary: computed.Summary, Rows: computed.Rows}, nil
+	return &Result{
+		Summary: computed.Summary,
+		Rows:    computed.Rows,
+		Columns: screening.ResultColumns(res.def.DisplayColumns, computed.Rows),
+	}, nil
 }
 
 // resolve performs the shared resolution both Preflight and Execute need:
@@ -336,7 +342,7 @@ func (s *Service) checkFieldBinding(ctx context.Context, binding screening.Input
 		if field.Name != binding.Field {
 			continue
 		}
-		kind := valueKindOf(field.Type)
+		kind := screening.ValueKindOfFieldType(field.Type)
 		if kind == "" {
 			reason := codeFieldUnobserved
 			problem := issueFor(binding.BindingID, reason,
@@ -349,26 +355,6 @@ func (s *Service) checkFieldBinding(ctx context.Context, binding screening.Input
 	problem := issueFor(binding.BindingID, reason,
 		fmt.Sprintf("dataset %q has no field %q", binding.Dataset, binding.Field))
 	return "", Coverage{BindingID: binding.BindingID, Available: false, Reason: &reason}, &problem, nil
-}
-
-// valueKindOf maps a catalog field type to the value kind the rule engine
-// compares literals against. An unknown type has no kind, which is how the
-// validator learns to skip it rather than guess.
-func valueKindOf(fieldType domain.FieldType) domain.ValueKind {
-	switch fieldType {
-	case domain.FieldDecimal:
-		return domain.ValueDecimal
-	case domain.FieldNumber:
-		return domain.ValueNumber
-	case domain.FieldString:
-		return domain.ValueString
-	case domain.FieldBoolean:
-		return domain.ValueBoolean
-	case domain.FieldTimestamp:
-		return domain.ValueTimestamp
-	default:
-		return ""
-	}
 }
 
 // bindingResult is one resolved factor binding: its coverage, its findings and
@@ -586,10 +572,10 @@ func (s *Service) runFactorBinding(ctx context.Context, res *resolved, binding s
 	})
 }
 
-// summarizeIssues renders the error-severity findings into one message.
+// SummarizeIssues renders the error-severity findings into one message.
 // domain.Error surfaces only its message, so the findings travel inline instead
 // of being dropped on the wire.
-func summarizeIssues(issues []domain.Issue) string {
+func SummarizeIssues(issues []domain.Issue) string {
 	parts := make([]string, 0, len(issues))
 	for _, issue := range issues {
 		if issue.Severity != domain.SeverityError {
@@ -616,6 +602,37 @@ func hasError(issues []domain.Issue) bool {
 		}
 	}
 	return false
+}
+
+// FrozenConfigOf projects a request onto the payload a run freezes: exactly
+// the contract's ScreenRunCreate fields, so the stored configuration and the
+// API response are the same document.
+func FrozenConfigOf(req Request) screening.WireRunConfig {
+	return screening.WireRunConfig{
+		ScreenerRef:         req.ScreenerRef,
+		SnapshotID:          req.SnapshotID,
+		UniverseRef:         req.UniverseRef,
+		AsOf:                req.AsOf.UTC(),
+		DecisionTimezone:    req.DecisionTimezone,
+		StrictPIT:           req.StrictPIT,
+		RequiredValuePolicy: req.RequiredValuePolicy,
+		SourceRunID:         req.SourceRunID,
+	}
+}
+
+// RequestOfFrozen rebuilds the executable request from a stored configuration.
+// A retry replays the exact frozen inputs, never a re-read of current state.
+func RequestOfFrozen(cfg screening.WireRunConfig) Request {
+	return Request{
+		ScreenerRef:         cfg.ScreenerRef,
+		SnapshotID:          cfg.SnapshotID,
+		UniverseRef:         cfg.UniverseRef,
+		AsOf:                cfg.AsOf,
+		DecisionTimezone:    cfg.DecisionTimezone,
+		StrictPIT:           cfg.StrictPIT,
+		RequiredValuePolicy: cfg.RequiredValuePolicy,
+		SourceRunID:         cfg.SourceRunID,
+	}
 }
 
 // validate rejects a request that cannot be evaluated at all. Failures are

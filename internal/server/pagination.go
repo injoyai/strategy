@@ -65,17 +65,33 @@ func ParsePage(w http.ResponseWriter, r *http.Request) (Page, bool) {
 
 // cursorPayload is the wire format of an opaque cursor. Versioned so an
 // incompatible format change forces clients to restart paging instead of
-// decoding garbage.
+// decoding garbage. Scope is empty for listings that have no collection
+// identity beyond the sort; a scoped listing (one run's frozen rows) fills it
+// so a cursor cannot be resumed against different content.
 type cursorPayload struct {
 	Version   int       `json:"v"`
 	CreatedAt time.Time `json:"at"`
 	Sort      string    `json:"sort"`
+	Scope     string    `json:"scope,omitempty"`
 	LastID    string    `json:"last_id"`
 }
 
 // EncodeCursor serializes a resume point into its opaque form.
 func EncodeCursor(sort, lastID string, createdAt time.Time) string {
-	raw, err := json.Marshal(cursorPayload{Version: 1, CreatedAt: createdAt.UTC(), Sort: sort, LastID: lastID})
+	return encodeCursor(sort, "", lastID, createdAt)
+}
+
+// EncodeScopedCursor serializes a resume point bound to the collection it was
+// minted for. The scope names what the cursor may be resumed against — for a
+// run's rows, the run, its frozen result hash and the active state filter — so
+// a cursor reused against a different result is rejected instead of returning
+// a wrong page.
+func EncodeScopedCursor(sort, scope, lastID string, createdAt time.Time) string {
+	return encodeCursor(sort, scope, lastID, createdAt)
+}
+
+func encodeCursor(sort, scope, lastID string, createdAt time.Time) string {
+	raw, err := json.Marshal(cursorPayload{Version: 1, CreatedAt: createdAt.UTC(), Sort: sort, Scope: scope, LastID: lastID})
 	if err != nil {
 		return ""
 	}
@@ -86,6 +102,16 @@ func EncodeCursor(sort, lastID string, createdAt time.Time) string {
 // the handler is using now. Expired cursors fail with the dedicated
 // pagination code; malformed or foreign cursors fail as invalid input.
 func ParseCursor(w http.ResponseWriter, r *http.Request, encoded, sort string, now time.Time) (Cursor, bool) {
+	return parseCursor(w, r, encoded, sort, "", false, now)
+}
+
+// ParseScopedCursor decodes a cursor minted by EncodeScopedCursor and requires
+// its scope to match the collection being listed.
+func ParseScopedCursor(w http.ResponseWriter, r *http.Request, encoded, sort, scope string, now time.Time) (Cursor, bool) {
+	return parseCursor(w, r, encoded, sort, scope, true, now)
+}
+
+func parseCursor(w http.ResponseWriter, r *http.Request, encoded, sort, scope string, requireScope bool, now time.Time) (Cursor, bool) {
 	if encoded == "" {
 		return Cursor{Sort: sort}, true
 	}
@@ -101,6 +127,11 @@ func ParseCursor(w http.ResponseWriter, r *http.Request, encoded, sort string, n
 	}
 	if p.Sort != sort {
 		writeBoundaryError(w, r, domain.CodeValidationInvalid, "cursor does not match the requested sort")
+		return Cursor{}, false
+	}
+	if requireScope && p.Scope != scope {
+		writeBoundaryError(w, r, domain.CodeValidationInvalid,
+			"cursor does not belong to this collection; restart listing from the first page")
 		return Cursor{}, false
 	}
 	if now.Sub(p.CreatedAt) > CursorTTL {

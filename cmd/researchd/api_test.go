@@ -15,6 +15,8 @@ import (
 	"github.com/injoyai/strategy/internal/data"
 	"github.com/injoyai/strategy/internal/domain"
 	"github.com/injoyai/strategy/internal/jobs"
+	"github.com/injoyai/strategy/internal/pipeline"
+	"github.com/injoyai/strategy/internal/screenrun"
 	"github.com/injoyai/strategy/internal/server"
 	"github.com/injoyai/strategy/internal/store"
 	"github.com/injoyai/strategy/internal/synthetic"
@@ -56,10 +58,13 @@ func newTestHandler(t *testing.T) http.Handler {
 		t.Fatalf("open synthetic provider: %v", err)
 	}
 
-	api, err := newAPI(silentLogger(), server.LocalAuth{}, db, jstore, dataStore, art,
+	api, screenRuns, err := newAPI(silentLogger(), server.LocalAuth{}, db, jstore, dataStore, art,
 		[]server.ProviderRegistration{{Provider: provider, Factory: synthetic.Factory{}}})
 	if err != nil {
 		t.Fatalf("build api: %v", err)
+	}
+	if screenRuns == nil {
+		t.Fatal("newAPI returned no screening run service; the worker would have nothing to execute")
 	}
 	return api.Handler()
 }
@@ -87,10 +92,11 @@ func TestNewAPIMountsEverySurface(t *testing.T) {
 		"/api/v1/providers",
 		"/api/v1/snapshots",
 		"/api/v1/jobs",
-		"/api/v1/datasets",  // M0 catalog, mounted with the data store
-		"/api/v1/universes", // M1-06/M1-09, mounted only with the research service
-		"/api/v1/factors",   // M1-07/M1-09, mounted only with the research service
-		"/api/v1/screeners", // M1S S2, mounted with the data store
+		"/api/v1/datasets",    // M0 catalog, mounted with the data store
+		"/api/v1/universes",   // M1-06/M1-09, mounted only with the research service
+		"/api/v1/factors",     // M1-07/M1-09, mounted only with the research service
+		"/api/v1/screeners",   // M1S S2, mounted with the data store
+		"/api/v1/screen-runs", // M1S S2, mounted with the screening run service
 	} {
 		rec := do(t, h, http.MethodGet, target, nil, nil)
 		if rec.Code != http.StatusOK {
@@ -162,5 +168,43 @@ func TestNewAPIAcceptsScreenerCreate(t *testing.T) {
 	}
 	if created.ID == "" || created.Version != "v1" {
 		t.Fatalf("created screener = %+v, want an id and version v1", created)
+	}
+}
+
+// TestNewRunHandlersClaimEverySubmittedKind guards the worker half of the
+// wiring: every job kind a POST endpoint can enqueue must have a handler in the
+// loop's map, otherwise the job stays queued forever with no error anywhere.
+func TestNewRunHandlersClaimEverySubmittedKind(t *testing.T) {
+	ctx := context.Background()
+	db, err := store.Open(filepath.Join(t.TempDir(), "metadata.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+	if err := store.Migrate(ctx, db, silentLogger()); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	jstore := jobs.NewStore(db, nil, nil)
+	dataStore := data.New(db, nil)
+	art := artifacts.New(t.TempDir(), db)
+	api, screenRuns, err := newAPI(silentLogger(), server.LocalAuth{}, db, jstore, dataStore, art, nil)
+	if err != nil {
+		t.Fatalf("build api: %v", err)
+	}
+	if api == nil || screenRuns == nil {
+		t.Fatal("newAPI returned a nil surface")
+	}
+
+	handlers := newRunHandlers(jstore, dataStore, art, screenRuns)
+	for _, kind := range []string{
+		pipeline.KindConnectionCheck,
+		pipeline.KindIngestionRun,
+		pipeline.KindSnapshotPublish,
+		pipeline.KindImportValidate,
+		screenrun.KindScreenRun,
+	} {
+		if handlers[kind] == nil {
+			t.Errorf("job kind %q is enqueueable but no handler claims it", kind)
+		}
 	}
 }

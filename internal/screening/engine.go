@@ -33,28 +33,33 @@ const (
 	StageNotSelected      RowStage = "not_selected"
 )
 
+// Row is one frozen result row. The JSON encoding is the run's persisted form:
+// a published result must be readable after the engine that produced it has
+// changed, so the payload is explicit rather than implied by field order.
 type Row struct {
-	InstrumentID domain.ID
-	Stage        RowStage
-	Rank         int64
-	Score        domain.Decimal
-	HasScore     bool
-	Selected     bool
-	Values       Inputs
-	Nodes        []NodeEvaluation
-	ScoreDetail  []ScoreEvidence
+	InstrumentID domain.ID        `json:"instrument_id"`
+	Stage        RowStage         `json:"stage"`
+	Rank         int64            `json:"rank"`
+	Score        domain.Decimal   `json:"score,omitempty"`
+	HasScore     bool             `json:"has_score"`
+	Selected     bool             `json:"selected"`
+	Values       Inputs           `json:"values"`
+	Nodes        []NodeEvaluation `json:"nodes"`
+	ScoreDetail  []ScoreEvidence  `json:"score_detail"`
 }
 
+// Summary is the mutually exclusive stage rollup of one run; the field names
+// match the contract's ScreenSummary schema.
 type Summary struct {
-	Population       int
-	ConditionFalse   int
-	ConditionUnknown int
-	ConditionTrue    int
-	RankInsufficient int
-	Rankable         int
-	Selected         int
-	NotSelected      int
-	EmptyReason      string
+	Population       int    `json:"population"`
+	ConditionFalse   int    `json:"condition_false"`
+	ConditionUnknown int    `json:"condition_unknown"`
+	ConditionTrue    int    `json:"condition_true"`
+	RankInsufficient int    `json:"rank_insufficient"`
+	Rankable         int    `json:"rankable"`
+	Selected         int    `json:"selected"`
+	NotSelected      int    `json:"not_selected"`
+	EmptyReason      string `json:"empty_reason,omitempty"`
 }
 
 const (

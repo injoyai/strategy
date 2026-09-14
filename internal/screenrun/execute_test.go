@@ -2,6 +2,7 @@ package screenrun
 
 import (
 	"context"
+	"database/sql"
 	"io"
 	"log/slog"
 	"path/filepath"
@@ -26,6 +27,8 @@ func discardLogger() *slog.Logger {
 type executeStack struct {
 	service *Service
 	request Request
+	db      *sql.DB
+	clock   *ports.FixedClock
 }
 
 func barObservation(inst, close string, at time.Time) domain.Observation {
@@ -54,7 +57,8 @@ func newExecuteStack(t *testing.T) *executeStack {
 	if err := store.Migrate(ctx, db, discardLogger()); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
-	dataStore := data.New(db, ports.NewFixedClock(time.Date(2026, 1, 15, 12, 0, 0, 0, time.UTC)))
+	clock := ports.NewFixedClock(time.Date(2026, 1, 15, 12, 0, 0, 0, time.UTC))
+	dataStore := data.New(db, clock)
 	at := time.Date(2026, 1, 5, 15, 30, 0, 0, time.UTC)
 	receipt, err := dataStore.Append(ctx, ports.BatchInput{
 		JobID:        "job-1",
@@ -92,6 +96,8 @@ func newExecuteStack(t *testing.T) *executeStack {
 	}
 	return &executeStack{
 		service: service,
+		db:      db,
+		clock:   clock,
 		request: Request{
 			ScreenerRef:         domain.VersionRef{ID: "placeholder", Version: "v1"},
 			SnapshotID:          snapshot.ID,
@@ -104,7 +110,8 @@ func newExecuteStack(t *testing.T) *executeStack {
 }
 
 // fieldOnlyScreener keeps the close-above-threshold rule as a field binding, so
-// the run reads its input from the snapshot instead of a factor.
+// the run reads its input from the snapshot instead of a factor. It declares
+// one display column, the normal case a published result has to describe.
 func fieldOnlyScreener() screening.Definition {
 	return screening.Definition{
 		Name:          "close-above",
@@ -115,8 +122,9 @@ func fieldOnlyScreener() screening.Definition {
 			Operator: screening.OpGt,
 			Value:    domain.Value{Kind: domain.ValueDecimal, Encoded: "10"},
 		},
-		Ranking:   screening.Ranking{Mode: screening.RankingSort, Fields: []screening.RankField{{Input: screening.Input{BindingID: "px"}, Direction: screening.DirectionDesc}}},
-		Selection: screening.Selection{Mode: screening.SelectionTopN, N: 1},
+		Ranking:        screening.Ranking{Mode: screening.RankingSort, Fields: []screening.RankField{{Input: screening.Input{BindingID: "px"}, Direction: screening.DirectionDesc}}},
+		Selection:      screening.Selection{Mode: screening.SelectionTopN, N: 1},
+		DisplayColumns: []domain.ID{"px"},
 	}
 }
 
@@ -193,8 +201,8 @@ func TestExecuteRefusesToPublishOnUnresolvableInputs(t *testing.T) {
 	if err == nil {
 		t.Fatal("a run whose field does not exist must be refused")
 	}
-	if code := domain.ErrorCode(err); code != codePreflightFailed {
-		t.Fatalf("code = %q, want %q", code, codePreflightFailed)
+	if code := domain.ErrorCode(err); code != CodePreflightFailed {
+		t.Fatalf("code = %q, want %q", code, CodePreflightFailed)
 	}
 }
 
