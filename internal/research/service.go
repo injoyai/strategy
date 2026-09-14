@@ -31,7 +31,7 @@ import (
 // factor run here is computed under (available_at <= as_of). It rides in
 // the factor cache key, so a future policy change can never serve frames
 // computed under the old semantics.
-const availabilityPolicy = "available_at"
+const availabilityPolicy = factor.AvailabilityPolicyAvailableAt
 
 // Stored analysis artifacts carry this name and media type.
 const (

@@ -1,6 +1,7 @@
 package screenrun
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -9,6 +10,35 @@ import (
 	"github.com/injoyai/strategy/internal/ports"
 	"github.com/injoyai/strategy/internal/screening"
 )
+
+// fakeView serves canned event times so the window derivation can be tested
+// without a database; Query and DatasetInstruments are unused by these tests.
+type fakeView struct {
+	asOf  time.Time
+	times []time.Time // newest first, as the real view returns them
+	calls []string
+}
+
+func (f *fakeView) SnapshotID() domain.ID { return "snap_1" }
+func (f *fakeView) AsOf() time.Time       { return f.asOf }
+
+func (f *fakeView) Query(context.Context, domain.DataQuery) (domain.PageResult[domain.Observation], error) {
+	return domain.PageResult[domain.Observation]{}, nil
+}
+
+func (f *fakeView) DatasetInstruments(context.Context, string, string) ([]domain.ID, error) {
+	return nil, nil
+}
+
+func (f *fakeView) RecentEventTimes(_ context.Context, dataset, frequency string, _ []domain.ID, limit int) ([]time.Time, error) {
+	f.calls = append(f.calls, dataset+"/"+frequency)
+	if limit >= len(f.times) {
+		return f.times, nil
+	}
+	return f.times[:limit], nil
+}
+
+var _ ports.DataView = (*fakeView)(nil)
 
 func testRegistry(t *testing.T) *factor.Registry {
 	t.Helper()
@@ -21,12 +51,13 @@ func testRegistry(t *testing.T) *factor.Registry {
 		Version: "1.0.0",
 		Title:   "Momentum",
 		Kind:    factor.KindBuiltin,
-		Params: []factor.Param{{
-			Name: "n", Type: factor.ParamInteger, Required: true,
-		}},
+		Params: []factor.Param{
+			{Name: "n", Type: factor.ParamInteger, Required: true},
+		},
 		Inputs: []factor.Input{{
 			Name: "close", Dataset: "bar", Field: "close", Frequency: "daily",
-			Lookback: 1, Unit: "cny", PIT: true,
+			LookbackFor: func(params map[string]any) int { return 2 },
+			Unit:        "cny", PIT: true,
 		}},
 		OutputUnit:   "ratio",
 		AssetClasses: []string{"equity"},
@@ -40,22 +71,17 @@ func testRegistry(t *testing.T) *factor.Registry {
 	return registry
 }
 
-func mixedDefinition() screening.Definition {
-	return screening.Definition{
-		Name: "mixed",
-		InputBindings: []screening.InputBinding{
-			{BindingID: "px", Kind: screening.BindingField, Dataset: "bar", Field: "close"},
-			{BindingID: "mom", Kind: screening.BindingFactor, FactorRef: domain.VersionRef{ID: "momentum", Version: "1.0.0"}, Params: screening.Params{"n": 20}},
-		},
-		ConditionTree: screening.Compare{
-			NodeID:   "gt",
-			Input:    screening.Input{BindingID: "px"},
-			Operator: screening.OpGt,
-			Value:    domain.Value{Kind: domain.ValueDecimal, Encoded: "10"},
-		},
-		Ranking:   screening.Ranking{Mode: screening.RankingSort, Fields: []screening.RankField{{Input: screening.Input{BindingID: "px"}, Direction: screening.DirectionDesc}}},
-		Selection: screening.Selection{Mode: screening.SelectionAll},
+func days(t *testing.T, values ...string) []time.Time {
+	t.Helper()
+	out := make([]time.Time, 0, len(values))
+	for _, value := range values {
+		at, err := time.Parse(time.RFC3339, value+"T15:00:00Z")
+		if err != nil {
+			t.Fatalf("parse %s: %v", value, err)
+		}
+		out = append(out, at.UTC())
 	}
+	return out
 }
 
 // TestRequestValidate pins the boundary between "cannot be evaluated" (an
@@ -102,98 +128,148 @@ func TestRequestValidate(t *testing.T) {
 	}
 }
 
-// TestCoverageResolvesFactorsAndReportsFieldGaps pins today's honest split:
-// a registered factor binding with canonical parameters is available, a field
-// binding is not resolvable yet, and the verdict still passes because the
-// field gap is reported as a warning rather than a silent assumption.
-func TestCoverageResolvesFactorsAndReportsFieldGaps(t *testing.T) {
-	svc := &Service{registry: testRegistry(t)}
-	var coverage []Coverage
-	issues := svc.coverage(mixedDefinition(), &coverage)
-
-	byBinding := map[domain.ID]Coverage{}
-	for _, c := range coverage {
-		byBinding[c.BindingID] = c
+// TestDeriveWindowUsesSnapshotHistory pins the whole point of the derivation:
+// the window start is the lookback-th most recent event time in the snapshot,
+// so a period count is never converted into an unverified time span.
+func TestDeriveWindowUsesSnapshotHistory(t *testing.T) {
+	registry := testRegistry(t)
+	spec, err := registry.Lookup(factor.FactorRef{ID: "momentum", Version: "1.0.0"})
+	if err != nil {
+		t.Fatalf("lookup momentum: %v", err)
 	}
-	if len(coverage) != 2 {
-		t.Fatalf("coverage = %+v, want one entry per binding", coverage)
+	view := &fakeView{
+		asOf:  time.Date(2026, 1, 15, 0, 0, 0, 0, time.UTC),
+		times: days(t, "2026-01-14", "2026-01-13", "2026-01-12", "2026-01-09"),
 	}
-	if got := byBinding["mom"]; !got.Available || got.Reason != nil {
-		t.Fatalf("factor binding coverage = %+v, want available with no reason", got)
+	from, dates, problem, err := deriveWindow(context.Background(), view, []domain.ID{"INST_A"}, spec, map[string]any{"n": 20})
+	if err != nil {
+		t.Fatalf("derive window: %v", err)
 	}
-	field := byBinding["px"]
-	if field.Available {
-		t.Fatal("a field binding must not be reported as available while no input catalog exists")
+	if problem != nil {
+		t.Fatalf("unexpected finding: %+v", problem)
 	}
-	if field.Reason == nil || *field.Reason != codeCatalogUnavailable {
-		t.Fatalf("field binding reason = %v, want %q", field.Reason, codeCatalogUnavailable)
+	// The spec requires two points, so the window opens on the second newest.
+	if want := days(t, "2026-01-13")[0]; !from.Equal(want) {
+		t.Fatalf("window start = %s, want %s", from, want)
 	}
-
-	// The gap is a warning: nothing about the request is wrong, it just cannot
-	// be checked yet — so the run stays preflightable.
-	for _, issue := range issues {
-		if issue.Severity == domain.SeverityError {
-			t.Fatalf("unexpected error-severity issue: %+v", issue)
-		}
+	// The window opens on the second newest date and therefore holds exactly the
+	// required number of dates — the estimate counts the window, not every date
+	// the snapshot happens to carry.
+	if dates != 2 {
+		t.Fatalf("dates = %d, want 2 (the window's own date count)", dates)
 	}
-	if !hasCode(issues, codeCatalogUnavailable) || !hasCode(issues, codeDataAvailabilityUnchecked) {
-		t.Fatalf("issues = %+v, want both the catalog gap and the availability caveat", issues)
+	if len(view.calls) != 1 || view.calls[0] != "bar/daily" {
+		t.Fatalf("view calls = %v, want one bar/daily lookup", view.calls)
 	}
 }
 
-func TestCoverageFailsClosedOnUnknownFactor(t *testing.T) {
-	svc := &Service{registry: testRegistry(t)}
-	def := mixedDefinition()
-	def.InputBindings[1].FactorRef = domain.VersionRef{ID: "momentum", Version: "9.9.9"}
-	var coverage []Coverage
-	issues := svc.coverage(def, &coverage)
-
-	var found *domain.Issue
-	for i := range issues {
-		if issues[i].Severity == domain.SeverityError {
-			found = &issues[i]
-			break
-		}
+// TestDeriveWindowReportsInsufficientHistory proves a short snapshot is a
+// finding rather than a silently shortened window.
+func TestDeriveWindowReportsInsufficientHistory(t *testing.T) {
+	registry := testRegistry(t)
+	spec, err := registry.Lookup(factor.FactorRef{ID: "momentum", Version: "1.0.0"})
+	if err != nil {
+		t.Fatalf("lookup momentum: %v", err)
 	}
-	if found == nil {
-		t.Fatal("an unknown factor version must be an error, not a warning")
+	view := &fakeView{
+		asOf:  time.Date(2026, 1, 15, 0, 0, 0, 0, time.UTC),
+		times: days(t, "2026-01-14"),
 	}
-	if found.Code != "factor.not_registered" {
-		t.Fatalf("issue code = %q, want factor.not_registered", found.Code)
+	from, dates, problem, err := deriveWindow(context.Background(), view, []domain.ID{"INST_A"}, spec, nil)
+	if err != nil {
+		t.Fatalf("derive window: %v", err)
 	}
-	// The per-binding reason and the issue must agree, so a caller reading only
-	// coverage still sees the right class.
-	for _, c := range coverage {
-		if c.BindingID == "mom" {
-			if c.Available || c.Reason == nil || *c.Reason != found.Code {
-				t.Fatalf("coverage = %+v, want unavailable with reason %q", c, found.Code)
-			}
-		}
+	if problem == nil {
+		t.Fatal("one available point against a two-point lookback must be reported")
 	}
-}
-
-func TestCoverageFailsClosedOnInvalidFactorParams(t *testing.T) {
-	svc := &Service{registry: testRegistry(t)}
-	def := mixedDefinition()
-	def.InputBindings[1].Params = nil // n is required
-	var coverage []Coverage
-	issues := svc.coverage(def, &coverage)
-
-	if !hasError(issues) {
-		t.Fatalf("missing required parameters must be an error: %+v", issues)
+	if problem.Code != factor.ProblemInsufficientHistory {
+		t.Fatalf("code = %q, want %q", problem.Code, factor.ProblemInsufficientHistory)
 	}
-	for _, c := range coverage {
-		if c.BindingID == "mom" && c.Available {
-			t.Fatal("a binding with invalid parameters must not be available")
-		}
+	if problem.Severity != domain.SeverityError {
+		t.Fatalf("severity = %q, want error", problem.Severity)
+	}
+	if !from.IsZero() {
+		t.Fatalf("window start = %s, want zero when the history is insufficient", from)
+	}
+	if dates != 1 {
+		t.Fatalf("dates = %d, want the 1 available date", dates)
 	}
 }
 
-func hasCode(issues []domain.Issue, code string) bool {
-	for _, issue := range issues {
-		if issue.Code == code {
-			return true
-		}
+// TestDeriveWindowTakesTheWidestRequirement pins the multi-input rule: the
+// window has to cover every input, not just the first one.
+func TestDeriveWindowTakesTheWidestRequirement(t *testing.T) {
+	spec := &factor.Spec{
+		ID:      "composite",
+		Version: "1.0.0",
+		Inputs: []factor.Input{
+			{Name: "close", Dataset: "bar", Field: "close", Frequency: "daily", Lookback: 1},
+			{Name: "eps", Dataset: "valuation", Field: "eps", Frequency: "quarterly", Lookback: 2},
+		},
 	}
-	return false
+	view := &fakeView{
+		asOf:  time.Date(2026, 1, 15, 0, 0, 0, 0, time.UTC),
+		times: days(t, "2026-01-14", "2026-01-13"),
+	}
+	from, dates, problem, err := deriveWindow(context.Background(), view, []domain.ID{"INST_A"}, spec, nil)
+	if err != nil {
+		t.Fatalf("derive window: %v", err)
+	}
+	if problem != nil {
+		t.Fatalf("unexpected finding: %+v", problem)
+	}
+	// Both inputs answer the same canned list, so the shallow one would open on
+	// the newest date while the deep one needs the older of the two: the widest
+	// requirement has to win.
+	if dates != 2 {
+		t.Fatalf("dates = %d, want 2", dates)
+	}
+	if len(view.calls) != 2 {
+		t.Fatalf("view calls = %v, want one per input", view.calls)
+	}
+	if want := days(t, "2026-01-13")[0]; !from.Equal(want) {
+		t.Fatalf("window start = %s, want %s", from, want)
+	}
+}
+
+// TestDeriveWindowLatestValueStillNeedsOnePoint covers the zero-lookback case:
+// a latest-value input has to have its newest point inside the window.
+func TestDeriveWindowLatestValueStillNeedsOnePoint(t *testing.T) {
+	spec := &factor.Spec{
+		ID:      "latest",
+		Version: "1.0.0",
+		Inputs:  []factor.Input{{Name: "close", Dataset: "bar", Field: "close", Frequency: "daily"}},
+	}
+	view := &fakeView{asOf: time.Date(2026, 1, 15, 0, 0, 0, 0, time.UTC)}
+	if _, _, problem, err := deriveWindow(context.Background(), view, []domain.ID{"INST_A"}, spec, nil); err != nil {
+		t.Fatalf("derive window: %v", err)
+	} else if problem == nil {
+		t.Fatal("a latest-value input with no data at all must be reported")
+	}
+
+	view.times = days(t, "2026-01-14")
+	from, _, problem, err := deriveWindow(context.Background(), view, []domain.ID{"INST_A"}, spec, nil)
+	if err != nil {
+		t.Fatalf("derive window: %v", err)
+	}
+	if problem != nil {
+		t.Fatalf("unexpected finding: %+v", problem)
+	}
+	if want := days(t, "2026-01-14")[0]; !from.Equal(want) {
+		t.Fatalf("window start = %s, want %s", from, want)
+	}
+}
+
+// TestDeriveWindowWithoutInputsIsEmpty documents that a factor with no declared
+// inputs has no data dependency to derive a window from.
+func TestDeriveWindowWithoutInputsIsEmpty(t *testing.T) {
+	spec := &factor.Spec{ID: "constant", Version: "1.0.0"}
+	view := &fakeView{asOf: time.Date(2026, 1, 15, 0, 0, 0, 0, time.UTC)}
+	from, dates, problem, err := deriveWindow(context.Background(), view, []domain.ID{"INST_A"}, spec, nil)
+	if err != nil {
+		t.Fatalf("derive window: %v", err)
+	}
+	if problem != nil || !from.IsZero() || dates != 0 {
+		t.Fatalf("derived (%s, %d, %+v), want an empty window and no finding", from, dates, problem)
+	}
 }

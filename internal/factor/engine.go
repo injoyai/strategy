@@ -23,6 +23,12 @@ type Engine struct {
 // NewEngine binds a registry, one point-in-time view and a cache. All
 // three are required: a run without preflight data or without a cache is
 // not meaningful.
+// AvailabilityPolicyAvailableAt names the DataView availability semantics
+// every factor computation runs under (available_at <= as_of). It is part of
+// the cache key, so its spelling is single-sourced here rather than repeated
+// by each caller.
+const AvailabilityPolicyAvailableAt = "available_at"
+
 func NewEngine(registry *Registry, view ports.DataView, cache *Cache) (*Engine, error) {
 	if registry == nil {
 		return nil, domain.NewError(domain.CodeValidationInvalid, "factor: registry is required")

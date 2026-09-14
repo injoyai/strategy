@@ -136,10 +136,15 @@ type DataStore interface {
 // rows ingested at or before that moment. DatasetInstruments lists the
 // distinct instruments of one dataset visible at the as_of under the same
 // PIT filters — the primitive historical_rule universes resolve through.
+// RecentEventTimes lists the most recent distinct event times of one dataset
+// and frequency that fall strictly before as_of, newest first — the primitive
+// that derives the window a factor needs from the data itself instead of
+// converting a declared period count into an unverified time span.
 // It never returns mutable buffers or future-visible records.
 type DataView interface {
 	SnapshotID() domain.ID
 	AsOf() time.Time
 	Query(context.Context, domain.DataQuery) (domain.PageResult[domain.Observation], error)
 	DatasetInstruments(context.Context, string, string) ([]domain.ID, error)
+	RecentEventTimes(context.Context, string, string, []domain.ID, int) ([]time.Time, error)
 }

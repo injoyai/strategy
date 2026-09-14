@@ -181,6 +181,61 @@ func (v *view) DatasetInstruments(ctx context.Context, dataset, frequency string
 	return members, nil
 }
 
+// RecentEventTimes lists the most recent distinct event times of one dataset
+// and frequency, newest first, that fall strictly before the view's as_of. The
+// strict bound matches the half-open range the factor engine reads
+// ([from, as_of)), so a window derived from the N-th entry actually contains N
+// usable dates. The same PIT filters as Query apply: manifest-bound batches,
+// available_at <= as_of and the half-open effective window covering as_of.
+// Fewer than the requested number of times means the snapshot does not carry
+// that much history — a finding, never a filled-in date.
+func (v *view) RecentEventTimes(ctx context.Context, dataset, frequency string, instrumentIDs []domain.ID, limit int) ([]time.Time, error) {
+	if dataset == "" || frequency == "" {
+		return nil, domain.NewError(domain.CodeValidationInvalid, "data query: dataset and frequency are required")
+	}
+	if limit <= 0 {
+		return nil, domain.NewError(domain.CodeValidationInvalid, "data query: limit must be positive")
+	}
+	times := make([]time.Time, 0, limit)
+	if len(instrumentIDs) == 0 {
+		return times, nil
+	}
+	query := `
+		SELECT DISTINCT event_time
+		FROM observations
+		WHERE batch_id IN (SELECT batch_id FROM snapshot_batches WHERE snapshot_id = ? AND workspace = ?)
+		  AND workspace = ? AND dataset = ? AND frequency = ?
+		  AND instrument_id IN (` + placeholders(len(instrumentIDs)) + `)
+		  AND event_time < ?
+		  AND available_at <= ?
+		  AND (effective_from IS NULL OR (effective_from <= ? AND (effective_to IS NULL OR ? < effective_to)))
+		ORDER BY event_time DESC
+		LIMIT ?`
+	args := make([]any, 0, len(instrumentIDs)+9)
+	args = append(args, v.snapshotID, workspaceDefault, workspaceDefault, dataset, frequency)
+	for _, id := range instrumentIDs {
+		args = append(args, id.String())
+	}
+	args = append(args, v.asOf.UnixNano(), v.asOf.UnixNano(), v.asOf.UnixNano(), v.asOf.UnixNano(), limit)
+
+	rs, err := v.store.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("data: query recent event times: %w", err)
+	}
+	defer rs.Close()
+	for rs.Next() {
+		var eventTime int64
+		if err := rs.Scan(&eventTime); err != nil {
+			return nil, fmt.Errorf("data: scan event time: %w", err)
+		}
+		times = append(times, time.Unix(0, eventTime).UTC())
+	}
+	if err := rs.Err(); err != nil {
+		return nil, fmt.Errorf("data: iterate event times: %w", err)
+	}
+	return times, nil
+}
+
 // scanObservation decodes one observations row into the domain record and
 // returns its natural key (instrument + entity + event time) used to
 // resolve the latest revision.

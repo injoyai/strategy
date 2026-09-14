@@ -22,6 +22,9 @@ import (
 // is read through a snapshot-pinned view, the rule set is validated, and each
 // declared binding reports whether it could be resolved.
 
+// screenMomentumSpec is a PIT input, so the seeded rows carry published_at —
+// the engine excludes rows without it and would otherwise report every member
+// as missing.
 func screenMomentumSpec() *factor.Spec {
 	return &factor.Spec{
 		ID:      "momentum",
@@ -43,8 +46,32 @@ func screenMomentumSpec() *factor.Spec {
 	}
 }
 
+// screenSlowSpec needs more history than the fixture snapshot carries, so the
+// preflight has to report insufficient history instead of shortening the window.
+func screenSlowSpec() *factor.Spec {
+	return &factor.Spec{
+		ID:      "slow-momentum",
+		Version: "1.0.0",
+		Title:   "Slow momentum",
+		Kind:    factor.KindBuiltin,
+		Params: []factor.Param{
+			{Name: "n", Type: factor.ParamInteger, Required: true},
+		},
+		Inputs: []factor.Input{{
+			Name: "close", Dataset: "bar", Field: "close", Frequency: "daily",
+			Lookback: 5, Unit: "price", PIT: true,
+		}},
+		OutputUnit:   "ratio",
+		AssetClasses: []string{"equity"},
+		Compute: func(*factor.ComputeContext) (domain.Decimal, string, error) {
+			return domain.Decimal("1"), "", nil
+		},
+	}
+}
+
 func screenBarRow(inst string) domain.Observation {
 	at := time.Date(2026, 1, 5, 15, 30, 0, 0, time.UTC)
+	published := at
 	instrument := domain.ID(inst)
 	return domain.Observation{
 		InstrumentID: &instrument,
@@ -57,6 +84,7 @@ func screenBarRow(inst string) domain.Observation {
 			RevisionID:     "rev-001",
 			AvailableAt:    at,
 			IngestedAt:     at,
+			PublishedAt:    &published,
 		},
 	}
 }
@@ -90,7 +118,10 @@ func newScreenStack(t *testing.T) *screenStack {
 	if err := registry.Register(screenMomentumSpec()); err != nil {
 		t.Fatalf("register momentum: %v", err)
 	}
-	runs, err := screenrun.New(dataStore, registry)
+	if err := registry.Register(screenSlowSpec()); err != nil {
+		t.Fatalf("register slow momentum: %v", err)
+	}
+	runs, err := screenrun.New(dataStore, registry, factor.NewCache())
 	if err != nil {
 		t.Fatalf("build screenrun service: %v", err)
 	}
@@ -108,7 +139,7 @@ func newScreenStack(t *testing.T) *screenStack {
 		JobID:        "job-1",
 		Dataset:      "bar",
 		Frequency:    "daily",
-		Observations: []domain.Observation{screenBarRow("INST_A")},
+		Observations: []domain.Observation{screenBarRow("INST_A"), screenBarRow("INST_B")},
 	})
 	if err != nil {
 		t.Fatalf("append batch: %v", err)
@@ -218,8 +249,77 @@ func TestScreenRunPreflightResolvesFrozenInputs(t *testing.T) {
 			t.Fatalf("unexpected error issue: %+v", issue)
 		}
 	}
-	if out.EstimatedRows != nil || out.EstimatedScanRows != nil {
-		t.Fatalf("estimates = %v/%v, want null until scan accounting exists", out.EstimatedScanRows, out.EstimatedRows)
+	// The estimates are derived from the resolved inputs: two members, one date
+	// in the derived window.
+	if out.EstimatedRows == nil || *out.EstimatedRows != 2 {
+		t.Fatalf("estimated_rows = %v, want 2", out.EstimatedRows)
+	}
+	if out.EstimatedScanRows == nil || *out.EstimatedScanRows != 2 {
+		t.Fatalf("estimated_scan_rows = %v, want 2 (2 members x 1 date)", out.EstimatedScanRows)
+	}
+}
+
+// TestScreenRunPreflightReportsInsufficientHistory proves a snapshot that does
+// not carry the factor's declared lookback is a failure with a reason, not a
+// silently shortened window.
+func TestScreenRunPreflightReportsInsufficientHistory(t *testing.T) {
+	stack := newScreenStack(t)
+	slow := saveScreener(t, stack.handler, "screenrun-seed-slow", `{
+      "name": "slow-pool",
+      "input_bindings": [
+        {"binding_id":"mom","kind":"factor","factor_ref":{"id":"slow-momentum","version":"1.0.0"},"params":{"n":20}}
+      ],
+      "condition_tree": {"node_id":"gt","kind":"missing","input":{"binding_id":"mom"},"is_present":true},
+      "ranking": {"mode":"sort","fields":[{"input":{"binding_id":"mom"},"direction":"desc"}]},
+      "selection": {"mode":"all"}
+    }`)
+
+	body := []byte(fmt.Sprintf(`{
+      "screener_ref": {"id": %q, "version": %q},
+      "snapshot_id": %q,
+      "universe_ref": {"id": %q, "version": %q},
+      "as_of": "2026-01-15T00:00:00Z",
+      "decision_timezone": "Asia/Shanghai",
+      "strict_pit": false,
+      "required_value_policy": "exclude_instrument"
+    }`, slow.ID, slow.Version, stack.snapshot.ID, stack.universe.ID, stack.universe.DefinitionHash))
+	rec := stack.preflight(t, body)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("preflight status = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	var out struct {
+		Valid  bool `json:"valid"`
+		Issues []struct {
+			Code     string `json:"code"`
+			Severity string `json:"severity"`
+		} `json:"issues"`
+		Coverage []struct {
+			BindingID string  `json:"binding_id"`
+			Available bool    `json:"available"`
+			Reason    *string `json:"reason"`
+		} `json:"coverage"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("decode preflight: %v", err)
+	}
+	if out.Valid {
+		t.Fatalf("preflight = %s, want invalid: the snapshot cannot satisfy a five-point lookback", rec.Body.String())
+	}
+	var insufficient bool
+	for _, issue := range out.Issues {
+		if issue.Code == "insufficient_history" && issue.Severity == "error" {
+			insufficient = true
+		}
+	}
+	if !insufficient {
+		t.Fatalf("issues = %+v, want an error-severity insufficient_history", out.Issues)
+	}
+	for _, c := range out.Coverage {
+		if c.BindingID == "mom" {
+			if c.Available || c.Reason == nil || *c.Reason != "insufficient_history" {
+				t.Fatalf("coverage = %+v, want unavailable with reason insufficient_history", c)
+			}
+		}
 	}
 }
 

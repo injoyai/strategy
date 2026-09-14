@@ -70,7 +70,7 @@ func newAPI(
 	if err != nil {
 		return nil, fmt.Errorf("build research service: %w", err)
 	}
-	screenRuns, err := screenrun.New(dataStore, registry)
+	screenRuns, err := screenrun.New(dataStore, registry, factor.NewCache())
 	if err != nil {
 		return nil, fmt.Errorf("build screening run service: %w", err)
 	}

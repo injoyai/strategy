@@ -11,12 +11,14 @@ package screenrun
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
 	"github.com/injoyai/strategy/internal/data"
 	"github.com/injoyai/strategy/internal/domain"
 	"github.com/injoyai/strategy/internal/factor"
+	"github.com/injoyai/strategy/internal/ports"
 	"github.com/injoyai/strategy/internal/screening"
 )
 
@@ -24,17 +26,20 @@ import (
 type Service struct {
 	data     *data.Store
 	registry *factor.Registry
+	cache    *factor.Cache
 }
 
-// New builds the screening run service; both dependencies are required.
-func New(store *data.Store, registry *factor.Registry) (*Service, error) {
+// New builds the screening run service; every dependency is required.
+func New(store *data.Store, registry *factor.Registry, cache *factor.Cache) (*Service, error) {
 	switch {
 	case store == nil:
 		return nil, domain.NewError(domain.CodeValidationInvalid, "screenrun: data store is required")
 	case registry == nil:
 		return nil, domain.NewError(domain.CodeValidationInvalid, "screenrun: factor registry is required")
+	case cache == nil:
+		return nil, domain.NewError(domain.CodeValidationInvalid, "screenrun: factor cache is required")
 	}
-	return &Service{data: store, registry: registry}, nil
+	return &Service{data: store, registry: registry, cache: cache}, nil
 }
 
 // Request mirrors the contract's ScreenRunCreate: every input is frozen at
@@ -71,21 +76,18 @@ type Preflight struct {
 }
 
 // Preflight checks a run without computing anything. An error return means the
-// request cannot be evaluated at all (malformed, or a referenced version does
-// not exist); a nil error with Valid=false carries the findings, so one round
-// reports every problem that is detectable from the frozen inputs.
+// request cannot be evaluated at all (malformed, a referenced version does not
+// exist, or the infrastructure underneath failed); a nil error with
+// Valid=false carries the findings, so one round reports every problem that is
+// detectable from the frozen inputs.
 //
 // What is deliberately not claimed here:
 //   - field bindings cannot be resolved yet: the ingestion field mapping
 //     (units in particular) is not persisted, so there is no input catalog to
 //     check dataset/field/unit against. They are reported as unavailable with
 //     an explicit reason instead of being assumed usable.
-//   - factor data availability (PIT, lookback, staleness) is not evaluated:
-//     the window a factor needs is derived from its declaration, and that
-//     derivation is not defined yet. Registration and parameter validity are
-//     checked, which is what a caller can act on today.
-//   - row estimates stay null for the same reason the factor preflight leaves
-//     them null: findings, not estimates, are what this contract returns.
+//   - the rule set is validated structurally only, for the same reason: with no
+//     catalog, literal kinds and units have nothing to be compared against.
 func (s *Service) Preflight(ctx context.Context, req Request) (*Preflight, error) {
 	if err := req.validate(); err != nil {
 		return nil, err
@@ -110,6 +112,17 @@ func (s *Service) Preflight(ctx context.Context, req Request) (*Preflight, error
 		return nil, domain.NewError(domain.CodeResourceConflict,
 			"screenrun: universe %s is bound to snapshot %s, not %s", universe.ID, universe.SnapshotID, req.SnapshotID)
 	}
+	snapshot, err := s.data.GetSnapshot(ctx, req.SnapshotID)
+	if err != nil {
+		return nil, err
+	}
+	// The snapshot's strictness is decided when it is published, so a run
+	// demanding strict PIT against a snapshot that admits unverified rows is
+	// asking for evidence the snapshot cannot provide.
+	if req.StrictPIT && !snapshot.StrictPIT {
+		return nil, domain.NewError(domain.CodeResourceConflict,
+			"screenrun: snapshot %s is not strict PIT", snapshot.ID)
+	}
 	view, err := s.data.OpenView(ctx, req.SnapshotID, req.AsOf)
 	if err != nil {
 		return nil, err
@@ -118,7 +131,6 @@ func (s *Service) Preflight(ctx context.Context, req Request) (*Preflight, error
 	if err != nil {
 		return nil, err
 	}
-
 	def, err := screening.DefinitionOfWire(version.Definition, version.Name, version.Description, version.ParentID)
 	if err != nil {
 		return nil, err
@@ -126,7 +138,12 @@ func (s *Service) Preflight(ctx context.Context, req Request) (*Preflight, error
 
 	result := &Preflight{}
 	result.Issues = append(result.Issues, screening.Validate(def, nil, screening.DefaultLimits())...)
-	result.Issues = append(result.Issues, s.coverage(def, &result.Coverage)...)
+	coverage, coverageIssues, windowDates, err := s.resolveBindings(ctx, def, view, members, universe, snapshot)
+	if err != nil {
+		return nil, err
+	}
+	result.Coverage = coverage
+	result.Issues = append(result.Issues, coverageIssues...)
 	if len(members) == 0 {
 		result.Issues = append(result.Issues, domain.Issue{
 			Code:     codeEmptyPopulation,
@@ -135,36 +152,52 @@ func (s *Service) Preflight(ctx context.Context, req Request) (*Preflight, error
 			Severity: domain.SeverityWarning,
 		})
 	}
+	if windowDates > 0 {
+		// One scanned row per member per date in the derived window; one result
+		// row per member. Both are derived from the resolved inputs, never
+		// guessed from the rule set alone.
+		scanRows := len(members) * windowDates
+		resultRows := len(members)
+		result.EstimatedScanRows = &scanRows
+		result.EstimatedRows = &resultRows
+	}
 	result.Valid = !hasError(result.Issues)
 	return result, nil
 }
 
-// coverage resolves every declared binding and records why one is unusable.
-// Findings are returned as issues so the verdict and the per-binding detail
-// never disagree.
-func (s *Service) coverage(def screening.Definition, out *[]Coverage) []domain.Issue {
+// resolveBindings resolves every declared binding and records why one is
+// unusable. It returns the highest date count any factor window covered, which
+// the scan estimate is built from.
+func (s *Service) resolveBindings(
+	ctx context.Context,
+	def screening.Definition,
+	view ports.DataView,
+	members []domain.ID,
+	universe domain.UniverseVersion,
+	snapshot domain.Snapshot,
+) ([]Coverage, []domain.Issue, int, error) {
+	var coverage []Coverage
 	var issues []domain.Issue
 	unresolvableFields := make([]domain.ID, 0)
-	checkedFactors := 0
+	windowDates := 0
 	for _, binding := range def.InputBindings {
 		switch binding.Kind {
 		case screening.BindingFactor:
-			if problem := s.checkFactorBinding(binding); problem != nil {
-				*out = append(*out, Coverage{BindingID: binding.BindingID, Available: false, Reason: &problem.Code})
-				issues = append(issues, *problem)
-				continue
+			cov, bindingIssues, dates, err := s.checkFactorBinding(ctx, binding, view, members, universe, snapshot)
+			if err != nil {
+				return nil, nil, 0, err
 			}
-			checkedFactors++
-			*out = append(*out, Coverage{BindingID: binding.BindingID, Available: true})
-		case screening.BindingField:
-			// No input catalog exists yet, so the dataset/field/unit cannot be
-			// checked against anything. Say so instead of assuming it works.
-			reason := codeCatalogUnavailable
-			*out = append(*out, Coverage{BindingID: binding.BindingID, Available: false, Reason: &reason})
-			unresolvableFields = append(unresolvableFields, binding.BindingID)
+			coverage = append(coverage, cov)
+			issues = append(issues, bindingIssues...)
+			if dates > windowDates {
+				windowDates = dates
+			}
 		default:
+			// Field and unknown bindings have no input catalog to resolve
+			// against, so the honest answer is "cannot verify", never "fine".
 			reason := codeCatalogUnavailable
-			*out = append(*out, Coverage{BindingID: binding.BindingID, Available: false, Reason: &reason})
+			coverage = append(coverage, Coverage{BindingID: binding.BindingID, Available: false, Reason: &reason})
+			unresolvableFields = append(unresolvableFields, binding.BindingID)
 		}
 	}
 	if len(unresolvableFields) > 0 {
@@ -175,41 +208,125 @@ func (s *Service) coverage(def screening.Definition, out *[]Coverage) []domain.I
 			Severity: domain.SeverityWarning,
 		})
 	}
-	if checkedFactors > 0 {
-		// Registration and parameters were verified; the data behind them was
-		// not. Saying that out loud keeps "available" from reading as "ready".
-		issues = append(issues, domain.Issue{
-			Code:     codeDataAvailabilityUnchecked,
-			Path:     "input_bindings",
-			Message:  "factor data availability (PIT, lookback, staleness) was not evaluated: the window derivation over a pinned view is not defined yet",
-			Severity: domain.SeverityWarning,
-		})
-	}
-	return issues
+	return coverage, issues, windowDates, nil
 }
 
-// checkFactorBinding verifies what the registry can answer today: the factor
-// version exists and its parameters canonicalize. The returned issue carries
-// the stable code of the underlying failure.
-func (s *Service) checkFactorBinding(binding screening.InputBinding) *domain.Issue {
+// checkFactorBinding verifies one factor binding end to end: the version is
+// registered, its parameters canonicalize, a window wide enough for its
+// declared lookback exists in the snapshot, and the engine's own preflight
+// (graph, per-input availability, PIT and staleness) reports nothing.
+func (s *Service) checkFactorBinding(
+	ctx context.Context,
+	binding screening.InputBinding,
+	view ports.DataView,
+	members []domain.ID,
+	universe domain.UniverseVersion,
+	snapshot domain.Snapshot,
+) (Coverage, []domain.Issue, int, error) {
 	ref := factor.FactorRef{ID: string(binding.FactorRef.ID), Version: binding.FactorRef.Version}
-	if _, err := s.registry.Lookup(ref); err != nil {
-		return &domain.Issue{
-			Code:     domain.ErrorCode(err),
-			Path:     "input_bindings[" + binding.BindingID.String() + "]",
-			Message:  err.Error(),
-			Severity: domain.SeverityError,
+	spec, err := s.registry.Lookup(ref)
+	if err != nil {
+		return unavailable(binding.BindingID, domain.ErrorCode(err)),
+			[]domain.Issue{issueFor(binding.BindingID, domain.ErrorCode(err), err.Error())}, 0, nil
+	}
+	params, err := s.registry.CanonicalParams(ref, binding.Params)
+	if err != nil {
+		return unavailable(binding.BindingID, domain.ErrorCode(err)),
+			[]domain.Issue{issueFor(binding.BindingID, domain.ErrorCode(err), err.Error())}, 0, nil
+	}
+	windowFrom, dates, problem, err := deriveWindow(ctx, view, members, spec, params)
+	if err != nil {
+		return Coverage{}, nil, 0, err
+	}
+	if problem != nil {
+		return unavailable(binding.BindingID, problem.Code), []domain.Issue{*problem}, dates, nil
+	}
+	engine, err := factor.NewEngine(s.registry, view, s.cache)
+	if err != nil {
+		return Coverage{}, nil, 0, err
+	}
+	problems, err := engine.Preflight(ctx, factor.RunRequest{
+		Ref:                ref,
+		Params:             params,
+		Members:            members,
+		Range:              domain.Interval{From: windowFrom, To: view.AsOf()},
+		UniverseID:         universe.ID.String(),
+		UniverseHash:       universe.DefinitionHash,
+		SnapshotHash:       snapshot.ManifestHash,
+		AvailabilityPolicy: factor.AvailabilityPolicyAvailableAt,
+	})
+	if err != nil {
+		return Coverage{}, nil, 0, err
+	}
+	if len(problems) > 0 {
+		bindingIssues := make([]domain.Issue, 0, len(problems))
+		for _, problem := range problems {
+			bindingIssues = append(bindingIssues, issueFor(binding.BindingID, problem.Code, problem.Message))
+		}
+		return unavailable(binding.BindingID, problems[0].Code), bindingIssues, dates, nil
+	}
+	// No input at all means no data to check: registration and parameters were
+	// the whole contract.
+	if windowFrom.IsZero() {
+		return Coverage{BindingID: binding.BindingID, Available: true}, nil, 0, nil
+	}
+	return Coverage{BindingID: binding.BindingID, Available: true}, nil, dates, nil
+}
+
+// deriveWindow resolves the input window from the data instead of converting a
+// declared period count into a time span: the window starts at the
+// lookback-th most recent event time before as_of, so the snapshot itself says
+// how far back the required points reach. The widest requirement across the
+// factor's inputs wins, and a snapshot that does not carry the history is
+// reported as insufficient rather than silently shortened.
+//
+// A returned zero time with no problem means the factor declares no inputs.
+func deriveWindow(ctx context.Context, view ports.DataView, members []domain.ID, spec *factor.Spec, params map[string]any) (time.Time, int, *domain.Issue, error) {
+	var from time.Time
+	dates := 0
+	for _, input := range spec.Inputs {
+		need := input.EffectiveLookback(params)
+		if need < 1 {
+			// A latest-value input still needs its newest point inside the
+			// half-open range.
+			need = 1
+		}
+		times, err := view.RecentEventTimes(ctx, input.Dataset, input.Frequency, members, need)
+		if err != nil {
+			return time.Time{}, 0, nil, err
+		}
+		if len(times) > dates {
+			dates = len(times)
+		}
+		if len(times) < need {
+			problem := domain.Issue{
+				Code: factor.ProblemInsufficientHistory,
+				Path: "input_bindings[" + input.Name + "]",
+				Message: fmt.Sprintf("input %s needs %d points of %s/%s before as_of but the snapshot carries %d",
+					input.Name, need, input.Dataset, input.Frequency, len(times)),
+				Severity: domain.SeverityError,
+			}
+			return time.Time{}, dates, &problem, nil
+		}
+		candidate := times[len(times)-1]
+		if from.IsZero() || candidate.Before(from) {
+			from = candidate
 		}
 	}
-	if _, err := s.registry.CanonicalParams(ref, binding.Params); err != nil {
-		return &domain.Issue{
-			Code:     domain.ErrorCode(err),
-			Path:     "input_bindings[" + binding.BindingID.String() + "]",
-			Message:  err.Error(),
-			Severity: domain.SeverityError,
-		}
+	return from, dates, nil, nil
+}
+
+func unavailable(bindingID domain.ID, reason string) Coverage {
+	return Coverage{BindingID: bindingID, Available: false, Reason: &reason}
+}
+
+func issueFor(bindingID domain.ID, code, message string) domain.Issue {
+	return domain.Issue{
+		Code:     code,
+		Path:     "input_bindings[" + bindingID.String() + "]",
+		Message:  message,
+		Severity: domain.SeverityError,
 	}
-	return nil
 }
 
 func hasError(issues []domain.Issue) bool {

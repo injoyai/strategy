@@ -12,9 +12,4 @@ const (
 	// catalog exists yet — the ingestion field mapping (units in particular)
 	// is not persisted, so dataset/field/unit cannot be checked.
 	codeCatalogUnavailable = "screenrun.catalog_unavailable"
-	// codeDataAvailabilityUnchecked: the factor reference and its parameters
-	// are valid, but the factor's data availability (PIT, lookback,
-	// staleness) was not evaluated because the window derivation the engine
-	// needs is not defined yet.
-	codeDataAvailabilityUnchecked = "screenrun.data_availability_unchecked"
 )
