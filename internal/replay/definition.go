@@ -29,6 +29,10 @@ const (
 	CmdSubmitOrder CommandKind = "submit_order"
 	CmdCancelOrder CommandKind = "cancel_order"
 	CmdClose       CommandKind = "close"
+	// CmdScreen names an in-session screening run. It is a command like the
+	// others because it consumes a revision and belongs to the session's
+	// serialized log, but it changes no account or time fact.
+	CmdScreen CommandKind = "screen"
 )
 
 // ModelRef pins one immutable model policy version plus explicit parameters.
