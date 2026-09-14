@@ -12,6 +12,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -25,10 +26,12 @@ import (
 	"github.com/injoyai/strategy/internal/config"
 	"github.com/injoyai/strategy/internal/data"
 	"github.com/injoyai/strategy/internal/domain"
+	"github.com/injoyai/strategy/internal/factor"
 	"github.com/injoyai/strategy/internal/jobs"
 	"github.com/injoyai/strategy/internal/logging"
 	"github.com/injoyai/strategy/internal/pipeline"
 	"github.com/injoyai/strategy/internal/ports"
+	"github.com/injoyai/strategy/internal/research"
 	"github.com/injoyai/strategy/internal/server"
 	"github.com/injoyai/strategy/internal/store"
 	"github.com/injoyai/strategy/internal/synthetic"
@@ -36,6 +39,47 @@ import (
 )
 
 const httpShutdownTimeout = 10 * time.Second
+
+// newAPI assembles the HTTP surface the process actually serves. It is a
+// function rather than an inline literal so the wiring itself is testable:
+// every surface mounted here is reachable in the deployed binary, and a
+// surface that is only mounted when its dependency is nil silently disappears
+// otherwise.
+//
+// The research service is built here because /universes, /factors,
+// /factor-runs and /factor-analyses are only mounted when it is supplied —
+// without it the whole M1-09 surface is a routing miss.
+func newAPI(
+	log *slog.Logger,
+	auth server.Authenticator,
+	db *sql.DB,
+	jstore *jobs.Store,
+	dataStore *data.Store,
+	art *artifacts.Store,
+	providers []server.ProviderRegistration,
+) (*server.API, error) {
+	registry, err := factor.NewRegistry(ports.SHA256Checksummer{})
+	if err != nil {
+		return nil, fmt.Errorf("build factor registry: %w", err)
+	}
+	if err := factor.RegisterDefaults(registry); err != nil {
+		return nil, fmt.Errorf("register default factors: %w", err)
+	}
+	researchService, err := research.New(dataStore, registry, factor.NewCache(), art, ports.SHA256Checksummer{})
+	if err != nil {
+		return nil, fmt.Errorf("build research service: %w", err)
+	}
+	return server.NewAPI(server.Options{
+		Log:         log,
+		Auth:        auth,
+		Idempotency: store.NewIdempotencyStore(db),
+		Jobs:        jstore,
+		Data:        dataStore,
+		Artifacts:   art,
+		Research:    researchService,
+		Providers:   providers,
+	}), nil
+}
 
 func main() {
 	if err := run(); err != nil {
@@ -107,17 +151,12 @@ func run() error {
 		return fmt.Errorf("open synthetic provider: %w", err)
 	}
 
-	api := server.NewAPI(server.Options{
-		Log:         log,
-		Auth:        auth,
-		Idempotency: store.NewIdempotencyStore(db),
-		Jobs:        jstore,
-		Data:        dataStore,
-		Artifacts:   art,
-		Providers: []server.ProviderRegistration{
-			{Provider: syntheticProvider, Factory: synthetic.Factory{}},
-		},
+	api, err := newAPI(log, auth, db, jstore, dataStore, art, []server.ProviderRegistration{
+		{Provider: syntheticProvider, Factory: synthetic.Factory{}},
 	})
+	if err != nil {
+		return err
+	}
 
 	handlers := &pipeline.Handlers{
 		Jobs:      jstore,
