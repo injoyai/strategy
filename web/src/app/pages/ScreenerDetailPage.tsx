@@ -339,12 +339,27 @@ function RunLauncher({ screenerRef }: { screenerRef: components["schemas"]["Vers
 }
 
 function PreflightResult({ preflight }: { preflight: components["schemas"]["ScreenPreflight"] }) {
+  // A finding that does not block the run is still information the operator
+  // needs — a member the factor cannot compute, an empty mother pool — so a
+  // valid preflight with findings reports them instead of only saying "ok".
   return (
     <div className="preflight-result" role="status">
-      {preflight.valid ? (
+      {preflight.valid && preflight.issues.length === 0 ? (
         <Alert type="success" showIcon title="预检通过：可以提交运行。" />
+      ) : preflight.valid ? (
+        <Alert
+          type="info"
+          showIcon
+          title={`预检通过，但有 ${preflight.issues.length} 条提示；运行会继续，相关成员按其阶段归类。`}
+          description={<IssueList issues={preflight.issues} />}
+        />
       ) : (
-        <Alert type="warning" showIcon title={`预检发现 ${preflight.issues.length} 个问题，一次性全部返回。`} description={<IssueList issues={preflight.issues} />} />
+        <Alert
+          type="warning"
+          showIcon
+          title={`预检未通过：${preflight.issues.length} 个问题一次性全部返回，提交会被拒绝。`}
+          description={<IssueList issues={preflight.issues} />}
+        />
       )}
       <div className="table-scroll">
         <table className="data-table compact-table">
