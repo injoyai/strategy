@@ -1026,3 +1026,78 @@ func TestSaveScreenUniverseRequiresAPublishedRun(t *testing.T) {
 		t.Fatalf("code = %q, want %q", env.Code, screening.CodeResultNotReady)
 	}
 }
+
+// TestScreenRunSurfaceAnswersOnlyForItsOwnResult pins SC-AC-12 on the screening
+// read surface: an unknown run is not found rather than empty, an instrument one
+// run does not cover is not answered from another run's rows, a cursor minted
+// for one run's page cannot resume another run's listing, and an expired cursor
+// restarts the listing instead of silently resuming it.
+//
+// The workspace dimension of the acceptance criterion cannot be exercised yet:
+// the deployment has exactly one workspace, so the test is bounded to the
+// identity that actually exists (run and frozen result).
+func TestScreenRunSurfaceAnswersOnlyForItsOwnResult(t *testing.T) {
+	stack := newScreenStack(t)
+	first := stack.seedRun(t)
+	second := stack.seedRun(t)
+
+	// An unknown run answers not-found on every surface it owns.
+	for _, target := range []string{
+		"/api/v1/screen-runs/srun_missing",
+		"/api/v1/screen-runs/srun_missing/rows",
+		"/api/v1/screen-runs/srun_missing/explanations/INST_A",
+	} {
+		rec := stack.get(t, target)
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("%s status = %d, want 404: %s", target, rec.Code, rec.Body.String())
+		}
+		if env := decodeWireError(t, rec); env.Code != domain.CodeResourceNotFound {
+			t.Fatalf("%s code = %q, want %q", target, env.Code, domain.CodeResourceNotFound)
+		}
+	}
+
+	// An instrument outside the run being read has no evidence to return, so it
+	// is not found instead of being answered from any other run's rows.
+	foreign := stack.get(t, "/api/v1/screen-runs/"+second.ID.String()+"/explanations/INST_MISSING")
+	if foreign.Code != http.StatusNotFound {
+		t.Fatalf("foreign instrument status = %d, want 404: %s", foreign.Code, foreign.Body.String())
+	}
+
+	page := stack.get(t, "/api/v1/screen-runs/"+first.ID.String()+"/rows?limit=1")
+	if page.Code != http.StatusOK {
+		t.Fatalf("first page status = %d, want 200: %s", page.Code, page.Body.String())
+	}
+	var bounded struct {
+		NextCursor *string `json:"next_cursor"`
+	}
+	if err := json.Unmarshal(page.Body.Bytes(), &bounded); err != nil {
+		t.Fatalf("decode page: %v", err)
+	}
+	if bounded.NextCursor == nil {
+		t.Fatal("a bounded page of two rows must return a cursor")
+	}
+
+	crossRun := stack.get(t, "/api/v1/screen-runs/"+second.ID.String()+"/rows?limit=1&cursor="+*bounded.NextCursor)
+	if crossRun.Code != http.StatusBadRequest {
+		t.Fatalf("cursor from another run = %d, want 400: %s", crossRun.Code, crossRun.Body.String())
+	}
+	if env := decodeWireError(t, crossRun); env.Code != domain.CodeValidationInvalid {
+		t.Fatalf("code = %q, want %q", env.Code, domain.CodeValidationInvalid)
+	}
+
+	// The same page cursor resumes its own listing: the refusal above is about
+	// identity, not about cursors being unusable.
+	ownPage := stack.get(t, "/api/v1/screen-runs/"+first.ID.String()+"/rows?limit=1&cursor="+*bounded.NextCursor)
+	if ownPage.Code != http.StatusOK {
+		t.Fatalf("resuming its own listing = %d, want 200: %s", ownPage.Code, ownPage.Body.String())
+	}
+
+	expired := EncodeScopedCursor(SortAsc, first.ID.String()+":"+first.ResultHash+":", "1", testBase.Add(-2*CursorTTL))
+	stale := stack.get(t, "/api/v1/screen-runs/"+first.ID.String()+"/rows?limit=1&cursor="+expired)
+	if stale.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expired cursor = %d, want 422: %s", stale.Code, stale.Body.String())
+	}
+	if env := decodeWireError(t, stale); env.Code != domain.CodePaginationCursorExpired {
+		t.Fatalf("code = %q, want %q", env.Code, domain.CodePaginationCursorExpired)
+	}
+}
