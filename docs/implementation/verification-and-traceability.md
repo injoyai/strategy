@@ -147,7 +147,20 @@
 
 这一层覆盖 Go 测试覆盖不到的部分：真实配置解析、真实迁移（1..11）、真实 worker 轮询与真实 HTTP 错误信封。
 
-**未完成**：SC-AC-11 的浏览器部分（无手写 JSON 完成闭环、断线、键盘、窄视口）本轮未能执行——本机 TRAE Chrome 扩展未响应（`Failed to connect to the TRAE Chrome extension`），仓库内也没有 Playwright/Puppeteer（新增端到端依赖需要先获授权）。在此之前 SC-AC-11 只有组件级测试（`ScreenRunPage.test.tsx` 等），不构成完整验收。
+### 3.4 契约形状审计（2026-09-14）
+
+契约测试只走状态码，**响应体的形状**没有任何自动检查，所以这里逐个比对了"直接序列化共享领域类型"的 wire 面（`additionalProperties: false` 意味着多一个字段、少一个必需字段都是违约）。做法：把契约 schema 的 `properties`/`required` 与 Go wire 结构体逐项对照，并对"必需 + nullable"的字段特别检查是否真的发出 `null`。
+
+本轮发现并修复两处（同一类：**域类型带 `omitempty`，直接被当成 wire 类型用**）：
+
+| 位置 | 现象 | 修复 |
+| --- | --- | --- |
+| 解释的 `nodes` | 契约是**单个** `ScreenNodeEvaluation`，服务端曾发数组 | 改为单对象，并在发布前校验"每行恰有一个条件根" |
+| 行的 `values` 与节点的 `threshold` | 契约 `Value` 把 `value`/`missing_reason` 都列为必需（不适用为显式 null），`domain.Value` 的 `omitempty` 会丢掉其中一个键 | 改走数据面既有 `wireValueOf`；既无编码又无缺失原因的格子按内部错误 fail-closed |
+
+审计结论（全部一致，无需改动）：`ScreenRun`、`ScreenRunCreate`、`ScreenSummary`、`ScreenRow`、`ScreenNodeEvaluation`、`ScreenExplanation`、`Batch`、`Snapshot`、`Dataset`、`Connection`、`Field`、`Issue`、`VersionRef`、`ReplayConfig`（后者见 [手动复盘实施](m2-manual-replay.md) §4 的修正记录）。`ScreenRun.quality_limits` 正确地**不在** wire 上（它是 artifact 与保存池的来源证据），`screenSummaryWire.EmptyReason` 用 `*string` 无 `omitempty` 从而始终发 `null`——这两处是正确做法的样板。
+
+**遗留的形状风险（已知、未改）**：`domain.Value` 自身的 `omitempty` 仍然作用于**持久化 JSON**（`observations.values_json`、`row_json`），这不影响 API 形状，但如果将来有新的 wire 面直接序列化它，就会重犯上面的错误。新增响应类型时请自问两点：契约里这个字段是必需的吗？不适用时客户端期待 `null` 还是"键不存在"？
 
 ## 4. CI 与本地验证入口
 
