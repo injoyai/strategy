@@ -1027,6 +1027,45 @@ func TestSaveScreenUniverseRequiresAPublishedRun(t *testing.T) {
 	}
 }
 
+// TestScreenRowValuesCarryBothContractKeys pins the contract's Value shape on
+// the screening surface: `value` and `missing_reason` are both required, with
+// null where they do not apply. Serializing the domain value straight to JSON
+// dropped the absent key, which a client reads as a missing field rather than an
+// explicit null — the same class of shape drift the explanation root had.
+func TestScreenRowValuesCarryBothContractKeys(t *testing.T) {
+	stack := newScreenStack(t)
+	run := stack.createRun(t)
+	rows := screenRows()
+	// INST_B has no value for the display column, and the root node carries the
+	// threshold it was compared against, so one page exercises both mappings.
+	delete(rows[1].Values, "px")
+	threshold := domain.Value{Kind: domain.ValueDecimal, Encoded: "10"}
+	rows[0].Nodes[0].Threshold = &threshold
+	stack.publish(t, run, screenSummary(), rows)
+
+	rec := stack.get(t, "/api/v1/screen-runs/"+run.ID.String()+"/rows?limit=50")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("rows status = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	// A present value: the value travels, the reason is an explicit null.
+	if !strings.Contains(body, `"kind":"decimal","value":"10.40","missing_reason":null`) {
+		t.Fatalf("rows = %s, want a present value with a null missing_reason", body)
+	}
+	// A column with no value for this instrument: null value, stated reason.
+	if !strings.Contains(body, `"kind":"decimal","value":null,"missing_reason":"`+rowColumnMissingReason+`"`) {
+		t.Fatalf("rows = %s, want a null value with the column missing reason", body)
+	}
+
+	explanation := stack.get(t, "/api/v1/screen-runs/"+run.ID.String()+"/explanations/INST_A")
+	if explanation.Code != http.StatusOK {
+		t.Fatalf("explanation status = %d, want 200: %s", explanation.Code, explanation.Body.String())
+	}
+	if !strings.Contains(explanation.Body.String(), `"threshold":{"kind":"decimal","value":"10","missing_reason":null}`) {
+		t.Fatalf("explanation = %s, want the threshold in the contract value shape", explanation.Body.String())
+	}
+}
+
 // TestScreenRunSurfaceAnswersOnlyForItsOwnResult pins SC-AC-12 on the screening
 // read surface: an unknown run is not found rather than empty, an instrument one
 // run does not cover is not answered from another run's rows, a cursor minted

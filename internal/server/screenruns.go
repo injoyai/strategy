@@ -289,15 +289,15 @@ func (a *API) getScreenRun(w http.ResponseWriter, r *http.Request) {
 }
 
 type screenRowWire struct {
-	InstrumentID string                  `json:"instrument_id"`
-	Symbol       *string                 `json:"symbol"`
-	Name         *string                 `json:"name"`
-	Selected     bool                    `json:"selected"`
-	Rank         *int64                  `json:"rank"`
-	Score        *domain.Decimal         `json:"score"`
-	Values       map[string]domain.Value `json:"values"`
-	Reason       string                  `json:"reason"`
-	QualityFlags []string                `json:"quality_flags"`
+	InstrumentID string               `json:"instrument_id"`
+	Symbol       *string              `json:"symbol"`
+	Name         *string              `json:"name"`
+	Selected     bool                 `json:"selected"`
+	Rank         *int64               `json:"rank"`
+	Score        *domain.Decimal      `json:"score"`
+	Values       map[string]wireValue `json:"values"`
+	Reason       string               `json:"reason"`
+	QualityFlags []string             `json:"quality_flags"`
 }
 
 type screenRowPage struct {
@@ -306,29 +306,37 @@ type screenRowPage struct {
 	Columns    []domain.Field  `json:"columns"`
 }
 
-// screenRowWireOf projects one frozen row onto the contract shape. symbol and
-// name stay null: the platform holds no instrument reference data yet, and a
-// fabricated label would be worse than an explicit absence.
-func screenRowWireOf(record screening.RunRecord, row screening.Row) screenRowWire {
+// screenRowWireOf projects one frozen row onto the contract shape. Every cell
+// travels through the same value mapper the data plane uses, because the
+// contract's Value requires both `value` and `missing_reason` to be present
+// (null where they do not apply); serializing the domain value directly would
+// drop those keys for a missing or empty cell. symbol and name stay null: the
+// platform holds no instrument reference data yet, and a fabricated label would
+// be worse than an explicit absence.
+func screenRowWireOf(record screening.RunRecord, row screening.Row) (screenRowWire, error) {
 	out := screenRowWire{
 		InstrumentID: row.InstrumentID.String(),
 		Selected:     row.Selected,
-		Values:       make(map[string]domain.Value, len(record.Columns)),
+		Values:       make(map[string]wireValue, len(record.Columns)),
 		Reason:       string(row.Stage),
 		QualityFlags: []string{},
 	}
 	for _, column := range record.Columns {
-		if value, ok := row.Values[domain.ID(column.Name)]; ok {
-			out.Values[column.Name] = value
-			continue
+		value, ok := row.Values[domain.ID(column.Name)]
+		if !ok {
+			// The column has no value for this instrument. Its kind is stated when
+			// the column's type is known and left empty when it is not: an unknown
+			// type has no kind to report, and guessing one would fabricate evidence.
+			value = domain.Value{
+				Kind:          screening.ValueKindOfFieldType(column.Type),
+				MissingReason: rowColumnMissingReason,
+			}
 		}
-		// The column has no value for this instrument. Its kind is stated when
-		// the column's type is known and left empty when it is not: an unknown
-		// type has no kind to report, and guessing one would fabricate evidence.
-		out.Values[column.Name] = domain.Value{
-			Kind:          screening.ValueKindOfFieldType(column.Type),
-			MissingReason: rowColumnMissingReason,
+		mapped, err := wireValueOf(value)
+		if err != nil {
+			return screenRowWire{}, err
 		}
+		out.Values[column.Name] = mapped
 	}
 	if row.Rank > 0 {
 		// Ranks are 1-based, so only a rankable row carries one; an excluded
@@ -340,7 +348,7 @@ func screenRowWireOf(record screening.RunRecord, row screening.Row) screenRowWir
 		score := row.Score
 		out.Score = &score
 	}
-	return out
+	return out, nil
 }
 
 // listScreenRows answers GET /screen-runs/{id}/rows. Rows are readable only
@@ -406,7 +414,12 @@ func (a *API) listScreenRows(w http.ResponseWriter, r *http.Request) {
 		out.Columns = []domain.Field{}
 	}
 	for _, row := range res.Items {
-		out.Items = append(out.Items, screenRowWireOf(record, row))
+		wire, err := screenRowWireOf(record, row)
+		if err != nil {
+			a.writeError(w, r, err)
+			return
+		}
+		out.Items = append(out.Items, wire)
 	}
 	if res.NextCursor != "" {
 		next := EncodeScopedCursor(SortAsc, scope, res.NextCursor, a.clock.Now())
@@ -514,11 +527,14 @@ func (a *API) selectedMembers(ctx context.Context, runID domain.ID) ([]domain.ID
 }
 
 type screenNodeWire struct {
-	NodeID        string           `json:"node_id"`
-	Truth         string           `json:"truth"`
-	Input         *screenInputWire `json:"input"`
-	Threshold     *domain.Value    `json:"threshold"`
-	MissingReason *string          `json:"missing_reason"`
+	NodeID    string           `json:"node_id"`
+	Truth     string           `json:"truth"`
+	Input     *screenInputWire `json:"input"`
+	Threshold *wireValue       `json:"threshold"`
+	// The threshold and the per-node input are contract Value shapes, so they
+	// travel through the same mapper as observation values: a value with no
+	// encoding and no missing reason is corrupted evidence, not a null.
+	MissingReason *string `json:"missing_reason"`
 	// Per-node data provenance is not recorded in the frozen evidence yet, so
 	// it is reported as an explicit absence instead of a plausible value.
 	DataTime   *time.Time       `json:"data_time"`
@@ -566,11 +582,16 @@ func (a *API) getScreenExplanation(w http.ResponseWriter, r *http.Request) {
 			"run %s row %s does not carry a single condition root", record.ID, instrumentID))
 		return
 	}
+	root, err := screenNodeWireOf(row.Nodes[0])
+	if err != nil {
+		a.writeError(w, r, err)
+		return
+	}
 	out := screenExplanationWire{
 		RunID:        record.ID.String(),
 		InstrumentID: row.InstrumentID.String(),
 		Stage:        string(row.Stage),
-		Nodes:        screenNodeWireOf(row.Nodes[0]),
+		Nodes:        root,
 		Score:        row.ScoreDetail,
 	}
 	if out.Score == nil {
@@ -579,12 +600,22 @@ func (a *API) getScreenExplanation(w http.ResponseWriter, r *http.Request) {
 	WriteJSON(w, http.StatusOK, out)
 }
 
-func screenNodeWireOf(node screening.NodeEvaluation) screenNodeWire {
+func screenNodeWireOf(node screening.NodeEvaluation) (screenNodeWire, error) {
 	wire := screenNodeWire{
-		NodeID:    node.NodeID.String(),
-		Truth:     string(node.Truth),
-		Threshold: node.Threshold,
-		Children:  screenNodeWires(node.Children),
+		NodeID: node.NodeID.String(),
+		Truth:  string(node.Truth),
+	}
+	children, err := screenNodeWires(node.Children)
+	if err != nil {
+		return screenNodeWire{}, err
+	}
+	wire.Children = children
+	if node.Threshold != nil {
+		threshold, err := wireValueOf(*node.Threshold)
+		if err != nil {
+			return screenNodeWire{}, err
+		}
+		wire.Threshold = &threshold
 	}
 	if node.Input != nil {
 		wire.Input = &screenInputWire{BindingID: node.Input.BindingID.String()}
@@ -593,13 +624,17 @@ func screenNodeWireOf(node screening.NodeEvaluation) screenNodeWire {
 		reason := node.MissingReason
 		wire.MissingReason = &reason
 	}
-	return wire
+	return wire, nil
 }
 
-func screenNodeWires(nodes []screening.NodeEvaluation) []screenNodeWire {
+func screenNodeWires(nodes []screening.NodeEvaluation) ([]screenNodeWire, error) {
 	out := make([]screenNodeWire, 0, len(nodes))
 	for _, node := range nodes {
-		out = append(out, screenNodeWireOf(node))
+		wire, err := screenNodeWireOf(node)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, wire)
 	}
-	return out
+	return out, nil
 }
