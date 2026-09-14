@@ -135,6 +135,55 @@ func TestDecimalRound(t *testing.T) {
 	}
 }
 
+func TestDecimalDiv(t *testing.T) {
+	a, _ := ParseDecimal("0.3")
+	b, _ := ParseDecimal("0.1")
+	q, err := a.Div(b)
+	if err != nil {
+		t.Fatalf("0.3/0.1 error: %v", err)
+	}
+	if q != Decimal("3") {
+		t.Fatalf("0.3/0.1 = %q, want 3", q)
+	}
+
+	one, _ := ParseDecimal("1")
+	three, _ := ParseDecimal("3")
+	if got, err := one.Div(three); err != nil || got != Decimal("0.3333333333333333") {
+		t.Fatalf("1/3 = %q err %v, want 16-digit quotient", got, err)
+	}
+	if got, err := one.Div(one); err != nil || got != one {
+		t.Fatalf("1/1 = %q err %v, want 1", got, err)
+	}
+	neg, _ := ParseDecimal("-0.75")
+	if got, err := neg.Div(three); err != nil || got != Decimal("-0.25") {
+		t.Fatalf("-0.75/3 = %q err %v, want -0.25", got, err)
+	}
+
+	zero, _ := ParseDecimal("0")
+	if got, err := one.Div(zero); err == nil {
+		t.Fatalf("1/0 = %q, want error", got)
+	} else if code := ErrorCode(err); code != CodeValidationInvalid {
+		t.Fatalf("1/0 code = %s, want %s", code, CodeValidationInvalid)
+	}
+	if _, err := one.Div(""); err == nil {
+		t.Fatal("invalid divisor should fail")
+	} else if code := ErrorCode(err); code != CodeValidationDecimal {
+		t.Fatalf("invalid divisor code = %s, want %s", code, CodeValidationDecimal)
+	}
+	if _, err := Decimal("").Div(one); err == nil {
+		t.Fatal("invalid dividend should fail")
+	}
+
+	// 40 nines divided by a tiny fraction exceeds the canonical length.
+	tiny, _ := ParseDecimal("0.00000000000000000000000000000000000001")
+	forty := Decimal(strings.Repeat("9", MaxDecimalLength))
+	if got, err := forty.Div(tiny); err == nil {
+		t.Fatalf("overflow division = %q, want error", got)
+	} else if code := ErrorCode(err); code != CodeValidationDecimal {
+		t.Fatalf("overflow code = %s, want %s", code, CodeValidationDecimal)
+	}
+}
+
 func TestDecimalUnmarshalJSON(t *testing.T) {
 	var d Decimal
 	if err := json.Unmarshal([]byte(`"1.50"`), &d); err != nil {

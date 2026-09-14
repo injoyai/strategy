@@ -147,6 +147,26 @@ func (d Decimal) Mul(o Decimal) (Decimal, error) {
 	return canonical(a.Mul(b))
 }
 
+// Div returns d / o, rounded to the division precision (16 fractional
+// digits) shopspring applies by default — well inside MaxDecimalLength.
+// A zero divisor is rejected explicitly: shopspring's Div panics on zero,
+// and callers (e.g. ratio factors) must map the failure onto a missing
+// reason such as invalid_denominator instead of an arithmetic panic.
+func (d Decimal) Div(o Decimal) (Decimal, error) {
+	a, err := d.value()
+	if err != nil {
+		return "", err
+	}
+	b, err := o.value()
+	if err != nil {
+		return "", err
+	}
+	if b.IsZero() {
+		return "", NewError(CodeValidationInvalid, "decimal: division by zero")
+	}
+	return canonical(a.Div(b))
+}
+
 // RoundingMode selects an explicit rounding strategy. No default is fixed:
 // call sites must name the mode so fee, mark and metric policies stay
 // explicit decisions.
