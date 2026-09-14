@@ -123,6 +123,37 @@ func (d UniverseDefinition) Validate() error {
 	return nil
 }
 
+// UniverseSource records where a static pool came from: the screening run that
+// selected it, the decision time it was selected at, the data it was selected
+// against and the quality limits that exploration carried. It is provenance,
+// not part of the member-selection contract, so it sits outside definition_hash
+// — but a consumer must honour it: a pool selected at t may not be used for a
+// decision before t, because that would backfill a choice nobody could have
+// made.
+type UniverseSource struct {
+	ScreenRunID   ID        `json:"screen_run_id"`
+	AsOf          time.Time `json:"as_of"`
+	SnapshotHash  string    `json:"snapshot_hash"`
+	QualityLimits []string  `json:"quality_limits"`
+}
+
+// Validate checks the source is complete enough to be evidence: without the run,
+// the decision time and the data hash there is nothing a consumer could refuse
+// or trust. An empty quality limit list is valid — it means the exploration
+// reported no caveats.
+func (s UniverseSource) Validate() error {
+	if s.ScreenRunID == "" {
+		return NewError(CodeValidationInvalid, "universe: source screen_run_id is required")
+	}
+	if s.AsOf.IsZero() {
+		return NewError(CodeValidationInvalid, "universe: source as_of is required")
+	}
+	if s.SnapshotHash == "" {
+		return NewError(CodeValidationInvalid, "universe: source snapshot_hash is required")
+	}
+	return nil
+}
+
 // UniverseVersionRequest is the input to CreateUniverseVersion. Creation is
 // not idempotent across requests: every save is a new version, mirroring
 // screening's semantics where saving a list records a new named revision.
@@ -130,15 +161,23 @@ type UniverseVersionRequest struct {
 	Name       string             `json:"name"`
 	SnapshotID ID                 `json:"snapshot_id"`
 	Definition UniverseDefinition `json:"definition"`
+	// Source is set only when the pool is saved from a screening run.
+	Source *UniverseSource `json:"-"`
 }
 
-// Validate checks the name, the snapshot binding and the definition.
+// Validate checks the name, the snapshot binding, the definition and the
+// optional source evidence.
 func (r UniverseVersionRequest) Validate() error {
 	if r.Name == "" {
 		return NewError(CodeValidationInvalid, "universe: name is required")
 	}
 	if r.SnapshotID == "" {
 		return NewError(CodeValidationInvalid, "universe: snapshot_id is required")
+	}
+	if r.Source != nil {
+		if err := r.Source.Validate(); err != nil {
+			return err
+		}
 	}
 	return r.Definition.Validate()
 }
@@ -152,5 +191,6 @@ type UniverseVersion struct {
 	SnapshotID     ID                 `json:"snapshot_id"`
 	Definition     UniverseDefinition `json:"definition"`
 	DefinitionHash string             `json:"definition_hash"`
+	Source         *UniverseSource    `json:"source"`
 	CreatedAt      time.Time          `json:"created_at"`
 }

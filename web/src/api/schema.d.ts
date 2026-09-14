@@ -1433,7 +1433,7 @@ export interface components {
             snapshot_id: string;
             definition: components["schemas"]["UniverseDefinition"];
         };
-        /** @description definition is the canonical (sorted, deduplicated) form; definition_hash covers the definition alone, excluding name and snapshot binding. */
+        /** @description definition is the canonical (sorted, deduplicated) form; definition_hash covers the definition alone, excluding name and snapshot binding. source records the screening run a static pool was saved from (null for a manually created universe); a backtest must refuse a pool whose source as_of is later than its own decision time. */
         Universe: {
             name: string;
             snapshot_id: string;
@@ -1442,6 +1442,7 @@ export interface components {
             definition_hash: string;
             /** Format: date-time */
             created_at: string;
+            source?: components["schemas"]["ScreenUniverseSource"] | null;
         };
         /** @description Read-only preview; the snapshot comes from the universe version's binding, never from the request. */
         UniverseResolve: {

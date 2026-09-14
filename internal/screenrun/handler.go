@@ -57,6 +57,7 @@ type runArtifact struct {
 	ScoringPolicyVersion string            `json:"scoring_policy_version"`
 	ConfigHash           string            `json:"config_hash"`
 	SnapshotHash         string            `json:"snapshot_hash"`
+	QualityLimits        []string          `json:"quality_limits"`
 	Summary              screening.Summary `json:"summary"`
 	Columns              []domain.Field    `json:"columns"`
 	Rows                 []screening.Row   `json:"rows"`
@@ -100,11 +101,12 @@ func (h *Handlers) ScreenRun(ctx context.Context, task *jobs.Task) error {
 		return err
 	}
 	if err := h.Runs.PublishScreenRun(ctx, run.ID, screening.RunPublishRequest{
-		Summary:     result.Summary,
-		Rows:        result.Rows,
-		Columns:     result.Columns,
-		ResultHash:  sealed.Checksum,
-		ArtifactIDs: []domain.ID{domain.ID(sealed.ID)},
+		Summary:       result.Summary,
+		Rows:          result.Rows,
+		Columns:       result.Columns,
+		QualityLimits: result.QualityLimits,
+		ResultHash:    sealed.Checksum,
+		ArtifactIDs:   []domain.ID{domain.ID(sealed.ID)},
 	}); err != nil {
 		return err
 	}
@@ -143,6 +145,7 @@ func (h *Handlers) seal(ctx context.Context, run screening.RunRecord, result Res
 		ScoringPolicyVersion: run.ScoringPolicyVersion,
 		ConfigHash:           run.ConfigHash,
 		SnapshotHash:         run.SnapshotHash,
+		QualityLimits:        nonNilStrings(result.QualityLimits),
 		Summary:              result.Summary,
 		Columns:              nonNilColumns(result.Columns),
 		Rows:                 nonNilRows(result.Rows),
@@ -177,4 +180,11 @@ func nonNilRows(rows []screening.Row) []screening.Row {
 		return []screening.Row{}
 	}
 	return rows
+}
+
+func nonNilStrings(values []string) []string {
+	if values == nil {
+		return []string{}
+	}
+	return values
 }

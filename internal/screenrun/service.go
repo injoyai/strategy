@@ -77,12 +77,14 @@ type Preflight struct {
 
 // Result is one computed screening run: the mutually exclusive stage counts,
 // the frozen rows, in the engine's canonical order (selected and rankable rows
-// by rank, then excluded rows by instrument), and the display-column
-// descriptors derived from those rows.
+// by rank, then excluded rows by instrument), the display-column descriptors
+// derived from those rows, and the codes of the non-blocking findings the run
+// was computed under.
 type Result struct {
-	Summary screening.Summary
-	Rows    []screening.Row
-	Columns []domain.Field
+	Summary       screening.Summary
+	Rows          []screening.Row
+	Columns       []domain.Field
+	QualityLimits []string
 }
 
 // ScoringPolicyVersion names the versioned scoring policy every run is computed
@@ -195,10 +197,31 @@ func (s *Service) Execute(ctx context.Context, req Request) (*Result, error) {
 		return nil, err
 	}
 	return &Result{
-		Summary: computed.Summary,
-		Rows:    computed.Rows,
-		Columns: screening.ResultColumns(res.def.DisplayColumns, computed.Rows),
+		Summary:       computed.Summary,
+		Rows:          computed.Rows,
+		Columns:       screening.ResultColumns(res.def.DisplayColumns, computed.Rows),
+		QualityLimits: warningCodes(res.issues),
 	}, nil
+}
+
+// warningCodes collects the distinct codes of the non-blocking findings one
+// resolution reported. They are what a pool saved from this run must carry
+// forward, so they travel with the published result; error-severity findings
+// never reach here because a run refuses to compute while any is present.
+func warningCodes(issues []domain.Issue) []string {
+	seen := make(map[string]struct{}, len(issues))
+	codes := make([]string, 0, len(issues))
+	for _, issue := range issues {
+		if issue.Severity == domain.SeverityError {
+			continue
+		}
+		if _, dup := seen[issue.Code]; dup {
+			continue
+		}
+		seen[issue.Code] = struct{}{}
+		codes = append(codes, issue.Code)
+	}
+	return codes
 }
 
 // resolve performs the shared resolution both Preflight and Execute need:

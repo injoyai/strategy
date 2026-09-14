@@ -130,6 +130,13 @@ S["UniverseCreate"] = obj({"name": TEXT, "snapshot_id": ID, "definition": ref("U
 S["Universe"] = obj({**S["UniverseCreate"]["properties"], "id": ID, "definition_hash": TEXT, "created_at": TIME},
     ["id", "name", "snapshot_id", "definition", "definition_hash", "created_at"],
     description="definition is the canonical (sorted, deduplicated) form; definition_hash covers the definition alone, excluding name and snapshot binding.")
+# Provenance of a universe saved from a screening run: the selection time and the
+# quality limits the pool was explored under. Like name and snapshot binding it
+# sits outside definition_hash — it does not change which members were selected,
+# it records when and under what caveats they were.
+S["Universe"]["properties"]["source"] = nullable(ref("ScreenUniverseSource"))
+S["Universe"]["description"] += (" source records the screening run a static pool was saved from (null for a manually created universe); "
+    "a backtest must refuse a pool whose source as_of is later than its own decision time.")
 S["UniverseResolve"] = obj({"as_of": TIME}, ["as_of"],
     description="Read-only preview; the snapshot comes from the universe version's binding, never from the request.")
 S["UniverseMembers"] = obj({"universe_id": ID, "as_of": TIME, "instrument_ids": array(ID), "count": INT},

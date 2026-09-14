@@ -88,11 +88,15 @@ func (r RunRequest) Validate() error {
 // the content checksum of the canonical result artifact and the artifacts the
 // result was sealed into.
 type RunPublishRequest struct {
-	Summary     Summary
-	Rows        []Row
-	Columns     []domain.Field
-	ResultHash  string
-	ArtifactIDs []domain.ID
+	Summary Summary
+	Rows    []Row
+	Columns []domain.Field
+	// QualityLimits are the codes of the non-blocking findings the run was
+	// computed under. They do not stop the run, but they are what a pool saved
+	// from it must carry forward, so they are frozen with the result.
+	QualityLimits []string
+	ResultHash    string
+	ArtifactIDs   []domain.ID
 }
 
 // RunRecord is one persisted screening run. Summary and the published fields
@@ -111,6 +115,7 @@ type RunRecord struct {
 	Summary              *Summary
 	ResultHash           string
 	Columns              []domain.Field
+	QualityLimits        []string
 	ArtifactIDs          []domain.ID
 	CreatedAt            time.Time
 	PublishedAt          *time.Time

@@ -28,16 +28,17 @@ const (
 	UniverseResolverVersion = "universe-resolver-v1"
 )
 
-const universeColumns = `id, name, snapshot_id, kind, definition_json, definition_hash, created_at`
+const universeColumns = `id, name, snapshot_id, kind, definition_json, definition_hash, source_json, created_at`
 
 func (s *Store) scanUniverse(row scanner) (domain.UniverseVersion, error) {
 	var (
-		uv        domain.UniverseVersion
-		kind      string
-		defJSON   []byte
-		createdAt int64
+		uv         domain.UniverseVersion
+		kind       string
+		defJSON    []byte
+		sourceJSON []byte
+		createdAt  int64
 	)
-	if err := row.Scan(&uv.ID, &uv.Name, &uv.SnapshotID, &kind, &defJSON, &uv.DefinitionHash, &createdAt); err != nil {
+	if err := row.Scan(&uv.ID, &uv.Name, &uv.SnapshotID, &kind, &defJSON, &uv.DefinitionHash, &sourceJSON, &createdAt); err != nil {
 		return domain.UniverseVersion{}, err
 	}
 	if err := json.Unmarshal(defJSON, &uv.Definition); err != nil {
@@ -48,6 +49,13 @@ func (s *Store) scanUniverse(row scanner) (domain.UniverseVersion, error) {
 	// was written by something other than CreateUniverseVersion.
 	if uv.Definition.Kind == "" || uv.Definition.Kind != domain.UniverseKind(kind) {
 		return domain.UniverseVersion{}, domain.NewError(domain.CodeInternalError, "data: universe %s definition kind mismatch", uv.ID)
+	}
+	if len(sourceJSON) > 0 {
+		var source domain.UniverseSource
+		if err := json.Unmarshal(sourceJSON, &source); err != nil {
+			return domain.UniverseVersion{}, domain.Wrap(err, domain.CodeInternalError, "data: decode universe source")
+		}
+		uv.Source = &source
 	}
 	uv.CreatedAt = time.Unix(0, createdAt).UTC()
 	return uv, nil
@@ -74,15 +82,29 @@ func (s *Store) CreateUniverseVersion(ctx context.Context, req domain.UniverseVe
 		return domain.UniverseVersion{}, err
 	}
 	definitionHash := s.sum.Checksum(encoded)
+	// The source evidence is stored separately from the definition because it
+	// is provenance, not part of the member-selection contract the hash covers.
+	var source *domain.UniverseSource
+	sourceJSON := ""
+	if req.Source != nil {
+		// Copy so the stored version never aliases the caller's struct.
+		stored := *req.Source
+		source = &stored
+		encodedSource, err := marshalJSON(stored)
+		if err != nil {
+			return domain.UniverseVersion{}, err
+		}
+		sourceJSON = string(encodedSource)
+	}
 	createdAt := s.clock.Now().UTC()
 	id := s.newID("univ")
 	// A single-row INSERT needs no transaction: the row is complete and
 	// immutable from the moment it lands.
 	if _, err := s.db.ExecContext(ctx, `
 		INSERT INTO universe_versions (
-			id, workspace, name, snapshot_id, kind, definition_json, definition_hash, created_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		id, workspaceDefault, req.Name, req.SnapshotID, string(canonical.Kind), encoded, definitionHash, createdAt.UnixNano()); err != nil {
+			id, workspace, name, snapshot_id, kind, definition_json, definition_hash, source_json, created_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		id, workspaceDefault, req.Name, req.SnapshotID, string(canonical.Kind), encoded, definitionHash, sourceJSON, createdAt.UnixNano()); err != nil {
 		return domain.UniverseVersion{}, fmt.Errorf("data: insert universe version: %w", err)
 	}
 	return domain.UniverseVersion{
@@ -91,6 +113,7 @@ func (s *Store) CreateUniverseVersion(ctx context.Context, req domain.UniverseVe
 		SnapshotID:     req.SnapshotID,
 		Definition:     canonical,
 		DefinitionHash: definitionHash,
+		Source:         source,
 		CreatedAt:      createdAt,
 	}, nil
 }

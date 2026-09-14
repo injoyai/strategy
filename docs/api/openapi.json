@@ -11851,6 +11851,16 @@
           "created_at": {
             "type": "string",
             "format": "date-time"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ScreenUniverseSource"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -11862,7 +11872,7 @@
           "created_at"
         ],
         "additionalProperties": false,
-        "description": "definition is the canonical (sorted, deduplicated) form; definition_hash covers the definition alone, excluding name and snapshot binding."
+        "description": "definition is the canonical (sorted, deduplicated) form; definition_hash covers the definition alone, excluding name and snapshot binding. source records the screening run a static pool was saved from (null for a manually created universe); a backtest must refuse a pool whose source as_of is later than its own decision time."
       },
       "UniverseResolve": {
         "type": "object",

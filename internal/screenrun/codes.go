@@ -23,4 +23,9 @@ const (
 	// when any error-severity finding came out of it. The HTTP mapping needs
 	// the literal, so it is exported rather than repeated.
 	CodePreflightFailed = "screenrun.preflight_failed"
+	// CodeEmptySelection: saving a pool from a run that selected nothing is
+	// refused rather than recorded. An empty member list is not a research
+	// decision, and a saved pool that resolves to nobody would silently make
+	// every later backtest empty.
+	CodeEmptySelection = "screenrun.empty_selection"
 )

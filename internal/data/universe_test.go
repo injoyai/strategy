@@ -80,6 +80,57 @@ func staticRequest(name string, snapshotID domain.ID, members ...string) domain.
 	}
 }
 
+// TestUniverseSourceIsStoredOutsideTheDefinitionHash proves provenance travels
+// with a version without changing which members it selects: the same definition
+// hashes identically with and without a source, the evidence survives a reload,
+// and a manually created version reports no source at all.
+func TestUniverseSourceIsStoredOutsideTheDefinitionHash(t *testing.T) {
+	store, snapshot := membershipFixture(t)
+	ctx := context.Background()
+
+	manual, err := store.CreateUniverseVersion(ctx, staticRequest("manual-pool", snapshot.ID, "inst-stable"))
+	if err != nil {
+		t.Fatalf("create manual universe: %v", err)
+	}
+	request := staticRequest("run-pool", snapshot.ID, "inst-stable")
+	request.Source = &domain.UniverseSource{
+		ScreenRunID:   "srun_1",
+		AsOf:          mustTime("2026-01-15T00:00:00Z"),
+		SnapshotHash:  snapshot.ManifestHash,
+		QualityLimits: []string{"screenrun.empty_population"},
+	}
+	fromRun, err := store.CreateUniverseVersion(ctx, request)
+	if err != nil {
+		t.Fatalf("create universe from a run: %v", err)
+	}
+
+	if manual.DefinitionHash != fromRun.DefinitionHash {
+		t.Fatalf("definition hashes differ (%q vs %q); the source must not enter the contract hash",
+			manual.DefinitionHash, fromRun.DefinitionHash)
+	}
+	if manual.Source != nil {
+		t.Fatalf("manual universe source = %+v, want none", manual.Source)
+	}
+	if fromRun.Source == nil || fromRun.Source.ScreenRunID != "srun_1" {
+		t.Fatalf("source = %+v, want the run reference", fromRun.Source)
+	}
+
+	loaded, err := store.GetUniverseVersion(ctx, fromRun.ID)
+	if err != nil {
+		t.Fatalf("get universe: %v", err)
+	}
+	if loaded.Source == nil {
+		t.Fatal("the stored version lost its source evidence")
+	}
+	if !loaded.Source.AsOf.Equal(request.Source.AsOf) || loaded.Source.SnapshotHash != snapshot.ManifestHash {
+		t.Fatalf("source = %+v, want the decision time and data hash", loaded.Source)
+	}
+	if len(loaded.Source.QualityLimits) != 1 || loaded.Source.QualityLimits[0] != "screenrun.empty_population" {
+		t.Fatalf("quality limits = %+v, want the exploration caveats", loaded.Source.QualityLimits)
+	}
+	assertMembers(t, loaded.Definition.CanonicalMembers(), "inst-stable")
+}
+
 func membershipFixture(t *testing.T) (*Store, domain.Snapshot) {
 	t.Helper()
 	s, _ := newTestStore(t)

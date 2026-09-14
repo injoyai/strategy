@@ -76,10 +76,11 @@ func runResult() screening.RunPublishRequest {
 		Summary: screening.Summary{
 			Population: 2, ConditionFalse: 1, ConditionTrue: 1, Rankable: 1, Selected: 1,
 		},
-		Rows:        rows,
-		Columns:     screening.ResultColumns([]domain.ID{"px"}, rows),
-		ResultHash:  "result-hash",
-		ArtifactIDs: []domain.ID{"art_1"},
+		Rows:          rows,
+		Columns:       screening.ResultColumns([]domain.ID{"px"}, rows),
+		QualityLimits: []string{"screenrun.empty_population"},
+		ResultHash:    "result-hash",
+		ArtifactIDs:   []domain.ID{"art_1"},
 	}
 }
 
@@ -124,6 +125,9 @@ func TestScreenRunPublishIsAtomicAndImmutable(t *testing.T) {
 	}
 	if len(published.Columns) != 1 || published.Columns[0].Name != "px" || published.Columns[0].Type != domain.FieldDecimal {
 		t.Fatalf("columns = %+v, want the derived display column", published.Columns)
+	}
+	if len(published.QualityLimits) != 1 || published.QualityLimits[0] != "screenrun.empty_population" {
+		t.Fatalf("quality limits = %+v, want the caveats the run was computed under", published.QualityLimits)
 	}
 
 	// A published result is evidence: republishing must not overwrite it.

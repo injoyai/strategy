@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strconv"
@@ -30,6 +31,7 @@ func (a *API) RegisterScreenRuns() {
 	a.Handle(http.MethodGet, "/screen-runs/{id}", a.getScreenRun, RouteOptions{})
 	a.Handle(http.MethodGet, "/screen-runs/{id}/rows", a.listScreenRows, RouteOptions{})
 	a.Handle(http.MethodGet, "/screen-runs/{id}/explanations/{instrument_id}", a.getScreenExplanation, RouteOptions{})
+	a.Handle(http.MethodPost, "/screen-runs/{id}/universe", a.saveScreenUniverse, RouteOptions{IdempotencyRequired: true})
 	a.Handle(http.MethodPost, "/screen-runs/preflight", a.preflightScreenRun, RouteOptions{})
 }
 
@@ -427,6 +429,88 @@ func (a *API) publishedScreenRun(w http.ResponseWriter, r *http.Request) (screen
 		return screening.RunRecord{}, false
 	}
 	return record, true
+}
+
+// saveScreenUniverse answers POST /screen-runs/{id}/universe: it saves the
+// complete selected set of a published run as a new immutable static pool,
+// carrying the run's source evidence (decision time, data hash, quality
+// limits) so a later decision can refuse it and so the caveats it was explored
+// under are never lost.
+//
+// The client supplies only a name: a pool built from a page of results, or from
+// a client-side filtered list, would silently be a different pool than the run
+// selected. An empty selection is refused rather than saved.
+func (a *API) saveScreenUniverse(w http.ResponseWriter, r *http.Request) {
+	if !a.requireScreenRuns(w, r) || !a.requireScreenRunJobs(w, r) {
+		return
+	}
+	record, ok := a.publishedScreenRun(w, r)
+	if !ok {
+		return
+	}
+	var req struct {
+		Name string `json:"name"`
+	}
+	if !DecodeJSON(w, r, &req) {
+		return
+	}
+	members, err := a.selectedMembers(r.Context(), record.ID)
+	if err != nil {
+		a.writeError(w, r, err)
+		return
+	}
+	if len(members) == 0 {
+		a.writeError(w, r, domain.NewError(screenrun.CodeEmptySelection,
+			"run %s selected no instruments; an empty pool is not a research decision", record.ID))
+		return
+	}
+	universe, err := a.data.CreateUniverseVersion(r.Context(), domain.UniverseVersionRequest{
+		Name:       req.Name,
+		SnapshotID: record.Config.SnapshotID,
+		Definition: domain.UniverseDefinition{Kind: domain.UniverseStatic, Members: members},
+		Source: &domain.UniverseSource{
+			ScreenRunID:   record.ID,
+			AsOf:          record.Config.AsOf,
+			SnapshotHash:  record.SnapshotHash,
+			QualityLimits: record.QualityLimits,
+		},
+	})
+	if err != nil {
+		a.writeError(w, r, err)
+		return
+	}
+	WriteJSON(w, http.StatusCreated, universe)
+}
+
+// selectedMembers walks every selected row of a published run, so the saved
+// pool is exactly the run's selection regardless of how many rows it holds.
+func (a *API) selectedMembers(ctx context.Context, runID domain.ID) ([]domain.ID, error) {
+	selected := true
+	var (
+		members []domain.ID
+		after   *int64
+	)
+	for {
+		page, err := a.data.ListScreenRunRows(ctx, runID, ports.ScreenRunRowFilter{
+			AfterOrdinal: after,
+			Selected:     &selected,
+			Limit:        MaxPageLimit,
+		})
+		if err != nil {
+			return nil, err
+		}
+		for _, row := range page.Items {
+			members = append(members, row.InstrumentID)
+		}
+		if page.NextCursor == "" {
+			return members, nil
+		}
+		offset, err := strconv.ParseInt(page.NextCursor, 10, 64)
+		if err != nil {
+			return nil, domain.Wrap(err, domain.CodeInternalError, "screenrun: row page resume point")
+		}
+		after = &offset
+	}
 }
 
 type screenNodeWire struct {

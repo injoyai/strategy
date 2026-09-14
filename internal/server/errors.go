@@ -68,7 +68,10 @@ func StatusForError(code string) int {
 		"screening.required_value_missing",
 		// Submission re-resolves the frozen inputs and refuses to compute when
 		// any error-severity finding comes out of it.
-		screenrun.CodePreflightFailed:
+		screenrun.CodePreflightFailed,
+		// Saving a pool from a run that selected nothing is a semantic refusal:
+		// the request is well-formed, the run simply has no selection to save.
+		screenrun.CodeEmptySelection:
 		return http.StatusUnprocessableEntity
 	case domain.CodeAuthUnauthorized:
 		return http.StatusUnauthorized

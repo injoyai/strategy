@@ -34,7 +34,7 @@ const (
 
 const screenRunColumns = `id, job_id, screener_id, source_run_id, config_json, config_hash,
 	engine_version, scoring_policy_version, snapshot_hash, summary_json, result_hash,
-	columns_json, artifact_ids, published_at, created_at`
+	columns_json, quality_limits_json, artifact_ids, published_at, created_at`
 
 func (s *Store) scanScreenRun(row scanner) (screening.RunRecord, error) {
 	var (
@@ -42,13 +42,14 @@ func (s *Store) scanScreenRun(row scanner) (screening.RunRecord, error) {
 		configJSON  []byte
 		summaryJSON []byte
 		columnsJSON []byte
+		limitsJSON  []byte
 		artifacts   []byte
 		publishedAt sql.NullInt64
 		createdAt   int64
 	)
 	if err := row.Scan(&record.ID, &record.JobID, &record.ScreenerID, &record.SourceRunID,
 		&configJSON, &record.ConfigHash, &record.EngineVersion, &record.ScoringPolicyVersion,
-		&record.SnapshotHash, &summaryJSON, &record.ResultHash, &columnsJSON, &artifacts,
+		&record.SnapshotHash, &summaryJSON, &record.ResultHash, &columnsJSON, &limitsJSON, &artifacts,
 		&publishedAt, &createdAt); err != nil {
 		return screening.RunRecord{}, err
 	}
@@ -63,6 +64,9 @@ func (s *Store) scanScreenRun(row scanner) (screening.RunRecord, error) {
 		record.Summary = &summary
 	}
 	if err := unmarshalRecord(columnsJSON, &record.Columns); err != nil {
+		return screening.RunRecord{}, err
+	}
+	if err := unmarshalRecord(limitsJSON, &record.QualityLimits); err != nil {
 		return screening.RunRecord{}, err
 	}
 	if err := unmarshalRecord(artifacts, &record.ArtifactIDs); err != nil {
@@ -255,6 +259,10 @@ func (s *Store) PublishScreenRun(ctx context.Context, runID domain.ID, req scree
 	if err != nil {
 		return err
 	}
+	limitsJSON, err := marshalJSON(nonNilStrings(req.QualityLimits))
+	if err != nil {
+		return err
+	}
 	artifactsJSON, err := marshalJSON(nonNilIDs(req.ArtifactIDs))
 	if err != nil {
 		return err
@@ -264,9 +272,9 @@ func (s *Store) PublishScreenRun(ctx context.Context, runID domain.ID, req scree
 	return s.withTx(ctx, func(tx *sql.Tx) error {
 		res, err := tx.ExecContext(ctx, `
 			UPDATE screen_runs
-			SET summary_json = ?, columns_json = ?, result_hash = ?, artifact_ids = ?, published_at = ?
+			SET summary_json = ?, columns_json = ?, quality_limits_json = ?, result_hash = ?, artifact_ids = ?, published_at = ?
 			WHERE workspace = ? AND id = ? AND published_at IS NULL`,
-			summaryJSON, columnsJSON, req.ResultHash, artifactsJSON,
+			summaryJSON, columnsJSON, limitsJSON, req.ResultHash, artifactsJSON,
 			publishedAt.UnixNano(), workspaceDefault, runID)
 		if err != nil {
 			return fmt.Errorf("data: publish screening run: %w", err)
@@ -413,4 +421,11 @@ func nonNilIDs(ids []domain.ID) []domain.ID {
 		return []domain.ID{}
 	}
 	return ids
+}
+
+func nonNilStrings(values []string) []string {
+	if values == nil {
+		return []string{}
+	}
+	return values
 }

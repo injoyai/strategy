@@ -531,32 +531,10 @@ func TestScreenRunSubmissionRefusesUnusableInputs(t *testing.T) {
 	}
 }
 
-// seedRun records one run through the store, optionally publishing a two-member
-// result. The read surface is exercised without a worker this way.
-func (s *screenStack) seedRun(t *testing.T, publish bool) screening.RunRecord {
-	t.Helper()
-	ctx := context.Background()
-	record, err := s.data.CreateScreenRun(ctx, screening.RunRequest{
-		JobID: "job_synthetic",
-		Config: screening.WireRunConfig{
-			ScreenerRef:         domain.VersionRef{ID: domain.ID(s.screener.ID), Version: s.screener.Version},
-			SnapshotID:          s.snapshot.ID,
-			UniverseRef:         domain.VersionRef{ID: s.universe.ID, Version: s.universe.DefinitionHash},
-			AsOf:                time.Date(2026, 1, 15, 0, 0, 0, 0, time.UTC),
-			DecisionTimezone:    "Asia/Shanghai",
-			RequiredValuePolicy: "exclude_instrument",
-		},
-		EngineVersion:        screening.EngineVersion,
-		ScoringPolicyVersion: screenrun.ScoringPolicyVersion,
-		SnapshotHash:         s.snapshot.ManifestHash,
-	})
-	if err != nil {
-		t.Fatalf("create run: %v", err)
-	}
-	if !publish {
-		return record
-	}
-	rows := []screening.Row{
+// screenRows is the frozen result every run fixture publishes: INST_A passes
+// the condition and ranks first, INST_B fails it.
+func screenRows() []screening.Row {
+	return []screening.Row{
 		{
 			InstrumentID: "INST_A",
 			Stage:        screening.StageSelected,
@@ -578,23 +556,64 @@ func (s *screenStack) seedRun(t *testing.T, publish bool) screening.RunRecord {
 			}},
 		},
 	}
-	err = s.data.PublishScreenRun(ctx, record.ID, screening.RunPublishRequest{
-		Summary: screening.Summary{
-			Population: 2, ConditionFalse: 1, ConditionTrue: 1, Rankable: 1, Selected: 1,
+}
+
+// screenSummary is the rollup of screenRows.
+func screenSummary() screening.Summary {
+	return screening.Summary{
+		Population: 2, ConditionFalse: 1, ConditionTrue: 1, Rankable: 1, Selected: 1,
+	}
+}
+
+// createRun records one unpublished run through the store.
+func (s *screenStack) createRun(t *testing.T) screening.RunRecord {
+	t.Helper()
+	record, err := s.data.CreateScreenRun(context.Background(), screening.RunRequest{
+		JobID: "job_synthetic",
+		Config: screening.WireRunConfig{
+			ScreenerRef:         domain.VersionRef{ID: domain.ID(s.screener.ID), Version: s.screener.Version},
+			SnapshotID:          s.snapshot.ID,
+			UniverseRef:         domain.VersionRef{ID: s.universe.ID, Version: s.universe.DefinitionHash},
+			AsOf:                time.Date(2026, 1, 15, 0, 0, 0, 0, time.UTC),
+			DecisionTimezone:    "Asia/Shanghai",
+			RequiredValuePolicy: "exclude_instrument",
 		},
-		Rows:        rows,
-		Columns:     screening.ResultColumns([]domain.ID{"px"}, rows),
-		ResultHash:  "result-hash",
-		ArtifactIDs: []domain.ID{"art_1"},
+		EngineVersion:        screening.EngineVersion,
+		ScoringPolicyVersion: screenrun.ScoringPolicyVersion,
+		SnapshotHash:         s.snapshot.ManifestHash,
+	})
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+	return record
+}
+
+// publish freezes one result onto a run and returns the reloaded record, so the
+// read surface is exercised without a worker.
+func (s *screenStack) publish(t *testing.T, run screening.RunRecord, summary screening.Summary, rows []screening.Row) screening.RunRecord {
+	t.Helper()
+	err := s.data.PublishScreenRun(context.Background(), run.ID, screening.RunPublishRequest{
+		Summary:       summary,
+		Rows:          rows,
+		Columns:       screening.ResultColumns([]domain.ID{"px"}, rows),
+		QualityLimits: []string{"screenrun.empty_population"},
+		ResultHash:    "result-hash",
+		ArtifactIDs:   []domain.ID{"art_1"},
 	})
 	if err != nil {
 		t.Fatalf("publish run: %v", err)
 	}
-	published, err := s.data.GetScreenRun(ctx, record.ID)
+	published, err := s.data.GetScreenRun(context.Background(), run.ID)
 	if err != nil {
 		t.Fatalf("reload run: %v", err)
 	}
 	return published
+}
+
+// seedRun records and publishes the standard two-member result.
+func (s *screenStack) seedRun(t *testing.T) screening.RunRecord {
+	t.Helper()
+	return s.publish(t, s.createRun(t), screenSummary(), screenRows())
 }
 
 func (s *screenStack) get(t *testing.T, target string) *httptest.ResponseRecorder {
@@ -608,7 +627,7 @@ func (s *screenStack) get(t *testing.T, target string) *httptest.ResponseRecorde
 // the frozen per-node evidence.
 func TestScreenRunReadSurfaceServesThePublishedResult(t *testing.T) {
 	stack := newScreenStack(t)
-	run := stack.seedRun(t, true)
+	run := stack.seedRun(t)
 
 	rec := stack.get(t, "/api/v1/screen-runs/"+run.ID.String())
 	if rec.Code != http.StatusOK {
@@ -746,7 +765,7 @@ func TestScreenRunReadSurfaceServesThePublishedResult(t *testing.T) {
 // conflict until the run publishes it.
 func TestScreenRunResultIsNotReadyBeforePublish(t *testing.T) {
 	stack := newScreenStack(t)
-	run := stack.seedRun(t, false)
+	run := stack.createRun(t)
 
 	detail := stack.get(t, "/api/v1/screen-runs/"+run.ID.String())
 	if detail.Code != http.StatusOK {
@@ -773,5 +792,129 @@ func TestScreenRunResultIsNotReadyBeforePublish(t *testing.T) {
 		if env := decodeWireError(t, rec); env.Code != screening.CodeResultNotReady {
 			t.Fatalf("%s code = %q, want %q", target, env.Code, screening.CodeResultNotReady)
 		}
+	}
+}
+
+// savePool posts a save-pool command for one run.
+func (s *screenStack) savePool(t *testing.T, runID domain.ID, key, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	return doRequest(t, s.handler, http.MethodPost, "/api/v1/screen-runs/"+runID.String()+"/universe", map[string]string{
+		"Content-Type":    "application/json",
+		"Idempotency-Key": key,
+	}, []byte(body))
+}
+
+// TestSaveScreenUniverseCarriesSourceEvidence proves a pool saved from a run is
+// exactly the run's selection and keeps the evidence a later decision needs: the
+// run it came from, the time it was selected at, the data it was selected
+// against and the caveats it was explored under.
+func TestSaveScreenUniverseCarriesSourceEvidence(t *testing.T) {
+	stack := newScreenStack(t)
+	run := stack.seedRun(t)
+
+	rec := stack.savePool(t, run.ID, "screenrun-pool-key-1", `{"name":"momentum-pool"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want 201: %s", rec.Code, rec.Body.String())
+	}
+	var saved struct {
+		ID         string `json:"id"`
+		Name       string `json:"name"`
+		SnapshotID string `json:"snapshot_id"`
+		Definition struct {
+			Kind    string   `json:"kind"`
+			Members []string `json:"members"`
+		} `json:"definition"`
+		Source *struct {
+			ScreenRunID   string    `json:"screen_run_id"`
+			AsOf          time.Time `json:"as_of"`
+			SnapshotHash  string    `json:"snapshot_hash"`
+			QualityLimits []string  `json:"quality_limits"`
+		} `json:"source"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &saved); err != nil {
+		t.Fatalf("decode universe: %v", err)
+	}
+	if saved.Definition.Kind != string(domain.UniverseStatic) {
+		t.Fatalf("definition = %+v, want a static pool", saved.Definition)
+	}
+	// Only the selected instrument, and the complete selected set rather than
+	// anything the client sent.
+	if len(saved.Definition.Members) != 1 || saved.Definition.Members[0] != "INST_A" {
+		t.Fatalf("members = %+v, want exactly the run's selection", saved.Definition.Members)
+	}
+	if saved.SnapshotID != stack.snapshot.ID.String() {
+		t.Fatalf("snapshot_id = %q, want the run's snapshot", saved.SnapshotID)
+	}
+	if saved.Source == nil {
+		t.Fatal("a pool saved from a run must carry its source evidence")
+	}
+	if saved.Source.ScreenRunID != run.ID.String() || !saved.Source.AsOf.Equal(run.Config.AsOf) {
+		t.Fatalf("source = %+v, want the run and its decision time", saved.Source)
+	}
+	if saved.Source.SnapshotHash != run.SnapshotHash {
+		t.Fatalf("source snapshot hash = %q, want %q", saved.Source.SnapshotHash, run.SnapshotHash)
+	}
+	if len(saved.Source.QualityLimits) != 1 || saved.Source.QualityLimits[0] != "screenrun.empty_population" {
+		t.Fatalf("quality limits = %+v, want the caveats the run was computed under", saved.Source.QualityLimits)
+	}
+
+	// The evidence is part of the stored version, not just the response.
+	stored, err := stack.data.GetUniverseVersion(context.Background(), domain.ID(saved.ID))
+	if err != nil {
+		t.Fatalf("read stored universe: %v", err)
+	}
+	if stored.Source == nil || stored.Source.ScreenRunID != run.ID {
+		t.Fatalf("stored source = %+v, want the run reference", stored.Source)
+	}
+	if stored.Definition.Kind != domain.UniverseStatic {
+		t.Fatalf("stored definition = %+v, want a static pool", stored.Definition)
+	}
+}
+
+// TestSaveScreenUniverseRefusesAPartialList proves the client cannot decide what
+// the pool contains: it supplies a name, and an unknown member list is rejected
+// as an unknown field rather than silently honoured.
+func TestSaveScreenUniverseRefusesAPartialList(t *testing.T) {
+	stack := newScreenStack(t)
+	run := stack.seedRun(t)
+
+	rec := stack.savePool(t, run.ID, "screenrun-pool-key-2", `{"name":"p","members":["INST_Z"]}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400: %s", rec.Code, rec.Body.String())
+	}
+	if env := decodeWireError(t, rec); env.Code != domain.CodeValidationUnknownField {
+		t.Fatalf("code = %q, want %q", env.Code, domain.CodeValidationUnknownField)
+	}
+}
+
+// TestSaveScreenUniverseRefusesAnEmptySelection pins the empty-pool boundary: a
+// run that selected nothing has no research decision to save.
+func TestSaveScreenUniverseRefusesAnEmptySelection(t *testing.T) {
+	stack := newScreenStack(t)
+	rows := screenRows()[1:] // only the excluded instrument
+	run := stack.publish(t, stack.createRun(t),
+		screening.Summary{Population: 1, ConditionFalse: 1}, rows)
+
+	rec := stack.savePool(t, run.ID, "screenrun-pool-key-3", `{"name":"empty-pool"}`)
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want 422: %s", rec.Code, rec.Body.String())
+	}
+	if env := decodeWireError(t, rec); env.Code != screenrun.CodeEmptySelection {
+		t.Fatalf("code = %q, want %q", env.Code, screenrun.CodeEmptySelection)
+	}
+}
+
+// TestSaveScreenUniverseRequiresAPublishedRun proves the pool inherits the
+// result boundary: nothing can be saved from a run whose result is not ready.
+func TestSaveScreenUniverseRequiresAPublishedRun(t *testing.T) {
+	stack := newScreenStack(t)
+	run := stack.createRun(t)
+
+	rec := stack.savePool(t, run.ID, "screenrun-pool-key-4", `{"name":"too-early"}`)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409: %s", rec.Code, rec.Body.String())
+	}
+	if env := decodeWireError(t, rec); env.Code != screening.CodeResultNotReady {
+		t.Fatalf("code = %q, want %q", env.Code, screening.CodeResultNotReady)
 	}
 }
