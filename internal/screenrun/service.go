@@ -287,6 +287,19 @@ func (s *Service) resolve(ctx context.Context, req Request) (*resolved, error) {
 	if err := s.resolveBindings(ctx, res); err != nil {
 		return nil, err
 	}
+	// A pool saved from a screening run records when it was selected. Ranking it
+	// at an earlier decision time would backfill a choice nobody could have made
+	// then, so the run is refused instead of quietly computed; the same rule is
+	// what a backtest enforces against a derived pool.
+	if universe.Source != nil && universe.Source.AsOf.After(req.AsOf) {
+		res.issues = append(res.issues, domain.Issue{
+			Code: codeUniverseSelectionAfterAsOf,
+			Path: "universe_ref",
+			Message: fmt.Sprintf("universe %s was selected at %s, after this decision time %s; a pool cannot rank a decision before the time it was selected",
+				universe.ID, universe.Source.AsOf.UTC().Format(time.RFC3339), req.AsOf.UTC().Format(time.RFC3339)),
+			Severity: domain.SeverityError,
+		})
+	}
 	// Validation runs with the resolved catalog so literal kinds and operators
 	// are checked against what the inputs actually are; a binding the catalog
 	// cannot type stays an explicit unknown and its kind checks are skipped
@@ -342,7 +355,9 @@ func (s *Service) resolveBindings(ctx context.Context, res *resolved) error {
 	}
 	res.catalog = catalog
 	res.coverage = coverage
-	res.issues = issues
+	// Appended rather than assigned: resolution runs several finders in sequence
+	// and no one of them may silently drop what another already reported.
+	res.issues = append(res.issues, issues...)
 	res.windows = windows
 	return nil
 }

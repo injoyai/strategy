@@ -313,6 +313,27 @@ func TestM1SScreeningVerticalSliceAcceptance(t *testing.T) {
 	if env := decodeBody[acceptanceWireError](t, "empty selection error", raw); env.Code != "screenrun.empty_selection" {
 		t.Fatalf("error code = %q, want screenrun.empty_selection", env.Code)
 	}
+
+	// 8. A pool saved from a run records when it was selected, so it cannot rank
+	// a decision from before that instant: the members were chosen with data
+	// that did not exist yet, and replaying the choice into the past would
+	// present it as if it had been available.
+	early := s.runRequest(cheap, snapshot, saved)
+	early["as_of"] = "2026-01-12T00:00:00Z"
+	refused := s.preflight(t, early)
+	if refused.Valid {
+		t.Fatalf("preflight = %+v, want a pool selected later to be refused", refused)
+	}
+	if !hasAcceptanceIssue(refused.Issues, "screenrun.universe_selection_after_as_of", "error", "2026-01-15T00:00:00Z") {
+		t.Fatalf("issues = %+v, want an error naming the pool's selection time", refused.Issues)
+	}
+	code, _, raw = s.call(http.MethodPost, "/screen-runs", early, "m1s-run-early")
+	if code != http.StatusUnprocessableEntity {
+		t.Fatalf("submitting a run before the pool's selection time: status %d, want 422 (body %s)", code, raw)
+	}
+	if env := decodeBody[acceptanceWireError](t, "early run error", raw); env.Code != screenrun.CodePreflightFailed {
+		t.Fatalf("error code = %q, want %s", env.Code, screenrun.CodePreflightFailed)
+	}
 }
 
 // factorScreenerBody is one revision over a pool-and-factor binding: a field

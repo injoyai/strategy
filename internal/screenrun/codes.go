@@ -31,6 +31,11 @@ const (
 	// rows were not ingested at, so a run would read nothing and report every
 	// member as missing instead of saying why.
 	codeFrequencyMismatch = "screenrun.frequency_mismatch"
+	// codeUniverseSelectionAfterAsOf: the mother pool was selected at a later
+	// decision time than this run's, so ranking at this time would backfill a
+	// choice nobody could have made. The pool's own provenance carries the
+	// instant that makes this decidable.
+	codeUniverseSelectionAfterAsOf = "screenrun.universe_selection_after_as_of"
 	// CodePreflightFailed: submission re-runs resolution and refuses to compute
 	// when any error-severity finding came out of it. The HTTP mapping needs
 	// the literal, so it is exported rather than repeated.
