@@ -182,6 +182,13 @@ Summary 计数互斥且守恒：
 
 导出 scope 必填 `selected | all_candidates`，格式 `csv | json`。导出与冻结结果 checksum 一致；CSV 防公式注入，保留 decimal 文本、单位、时区、数据时间与质量说明，并执行数据许可策略。
 
+静态池一半已交付（`POST /screen-runs/{id}/universe`、migration 00010/00011）：
+
+- **请求体只有 `name`**：入选名单由服务端逐页读完全部 selected 行（`selectedMembers`），因为用当前页或客户端过滤后的列表保存，会静默存下与 Run 不同的池；客户端传 `members` 会因 `validation.unknown_field` 被拒。
+- **契约补齐**：`Universe` 原本没有任何字段能承载来源证据（`additionalProperties: false`），SC-AC-09/10 因此无法通过契约表达，于是给 `Universe` 增加了可选 `source`（nullable `ScreenUniverseSource`）。`source` 与 name、snapshot 绑定一样**不进 definition_hash**（它不改变选中了谁，只记录何时、在什么限制下选中），存储上是 `universe_versions.source_json`（`''` 表示非 Run 保存），有测试断言同一定义带/不带 source 的 hash 相同。
+- **quality limits 来自 Run 自己**：Run 在发布时冻结其非 error 级 finding 的 code（`screen_runs.quality_limits_json`，migration 00011，写进规范 artifact），保存池时复制到 `source.quality_limits`。“探索质量限制不丢失”因此是搬运既有证据，而不是重新推断。
+- 未交付：`/screen-runs/{id}/exports`（导出 Job）、以及 S4 里“用 t 时点名单做 t 之前决策 → 拒绝”的判定（本次只把判定所需的证据落库）。
+
 ## 7. S3 前端闭环
 
 新增路由：`/screeners`、`/screeners/new`、`/screeners/:id`、`/screen-runs/:id`。实现细节见 [前端实施](frontend-delivery.md)。
@@ -205,7 +212,7 @@ Summary 计数互斥且守恒：
 | S1-04 | 稳定排序、百分位评分与 top_n | 单元素/同值/分片/分页 oracle（`ranking_test.go` 的 m=1/全等→0.5、平局平均秩、shuffle oracle；`engine_test.go` 守恒/fail_run/空因） |
 | S2-01 | Preflight、Engine 与 Job handler | PIT、空母池、取消/恢复/fencing（已交付：`/screen-runs/preflight` 与 `POST /screen-runs`(202+Job+幂等键)、`internal/screenrun` 的解析/绑定/coverage 与 `Execute`、数据驱动的因子窗口推导、`screenrun.Handlers` 的 `screen.run` job kind（`internal/screenrun/handler_test.go` 走真实 jobs.Loop））；未完成：单位可比性（SC-AC-01） |
 | S2-02 | 版本/Run/结果存储与查询 | 迁移、原子发布、Summary 守恒、游标（已交付：`screener_versions` + `/screeners` CRUD + `GET /screeners/{id}?version=`，以及 `00009_screen_runs.sql`、`/screen-runs` 清单/详情/rows/explanations、发布前 409 `screenrun.result_not_ready`、scope 绑定的行游标、守恒在发布事务内复核） |
-| S2-03 | 静态池与导出 | 来源时点、完整 scope、许可与 CSV 安全 |
+| S2-03 | 静态池与导出 | 来源时点、完整 scope、许可与 CSV 安全（静态池已交付：`POST /screen-runs/{id}/universe` 只收 name、服务端读完整入选集、空入选 422 `screenrun.empty_selection`、`Universe.source` 携带 run/as_of/snapshot hash/quality limits 且不进 definition_hash）；未交付：`/screen-runs/{id}/exports` 与 S4 的时点拒绝判定 |
 | S3 | 四个页面的完整路径 | 成功/失败/断线/键盘/窄视口 |
 | S4 | 回测时点校验与 Replay 引用检查 | 未来名单/跨会话拒绝 |
 
