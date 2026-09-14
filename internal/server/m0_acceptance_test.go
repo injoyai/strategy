@@ -17,9 +17,12 @@ import (
 	"github.com/injoyai/strategy/internal/artifacts"
 	"github.com/injoyai/strategy/internal/data"
 	"github.com/injoyai/strategy/internal/domain"
+	"github.com/injoyai/strategy/internal/factor"
 	"github.com/injoyai/strategy/internal/jobs"
 	"github.com/injoyai/strategy/internal/pipeline"
 	"github.com/injoyai/strategy/internal/ports"
+	"github.com/injoyai/strategy/internal/research"
+	"github.com/injoyai/strategy/internal/screenrun"
 	"github.com/injoyai/strategy/internal/store"
 	"github.com/injoyai/strategy/internal/synthetic"
 )
@@ -75,6 +78,28 @@ func (s *acceptanceStack) start() {
 		db.Close()
 		s.t.Fatalf("open synthetic provider: %v", err)
 	}
+	// The stack mirrors the deployed assembly (cmd/researchd): a surface that is
+	// only mounted when its dependency is supplied disappears silently, so the
+	// acceptance run must mount what the binary mounts.
+	registry, err := factor.NewRegistry(ports.SHA256Checksummer{})
+	if err != nil {
+		db.Close()
+		s.t.Fatalf("build factor registry: %v", err)
+	}
+	if err := factor.RegisterDefaults(registry); err != nil {
+		db.Close()
+		s.t.Fatalf("register default factors: %v", err)
+	}
+	researchService, err := research.New(dataStore, registry, factor.NewCache(), artStore, ports.SHA256Checksummer{})
+	if err != nil {
+		db.Close()
+		s.t.Fatalf("build research service: %v", err)
+	}
+	screenRuns, err := screenrun.New(dataStore, registry, factor.NewCache())
+	if err != nil {
+		db.Close()
+		s.t.Fatalf("build screening run service: %v", err)
+	}
 	api := NewAPI(Options{
 		Log:         silentLogger(),
 		Auth:        LocalAuth{},
@@ -83,21 +108,33 @@ func (s *acceptanceStack) start() {
 		Jobs:        jstore,
 		Data:        dataStore,
 		Artifacts:   artStore,
+		Research:    researchService,
+		ScreenRuns:  screenRuns,
 		Providers:   []ProviderRegistration{{Provider: provider, Factory: synthetic.Factory{}}},
 	})
-	handlers := &pipeline.Handlers{
+	handlers := (&pipeline.Handlers{
 		Jobs:      jstore,
 		Data:      dataStore,
 		Factories: map[domain.ID]ports.ProviderFactory{synthetic.ProviderID: synthetic.Factory{}},
 		Clock:     s.clk,
 		Artifacts: artStore,
+	}).Map()
+	// The worker claims every registered kind; cmd/researchd merges the same two
+	// maps in newRunHandlers.
+	for kind, handler := range (&screenrun.Handlers{
+		Jobs:      jstore,
+		Runs:      dataStore,
+		Service:   screenRuns,
+		Artifacts: artStore,
+	}).Map() {
+		handlers[kind] = handler
 	}
 	loopCtx, cancelLoop := context.WithCancel(baseCtx)
 	s.cancels = append(s.cancels, cancelLoop)
 	go (&jobs.Loop{
 		Store:    jstore,
 		Owner:    "acceptance",
-		Handlers: handlers.Map(),
+		Handlers: handlers,
 		Lease:    5 * time.Second,
 		Poll:     10 * time.Millisecond,
 		Log:      silentLogger(),
@@ -347,9 +384,14 @@ func acceptanceIngestionBody(connID, version string) map[string]any {
 		"instrument_ids": []string{"INST_A", "INST_B"},
 		"range":          map[string]any{"from": "2026-01-01T00:00:00Z", "to": "2026-02-01T00:00:00Z"},
 		"mode":           "backfill",
+		// target_unit declares the unit the normalized value is stored in, so it
+		// is the platform's vocabulary (the bar schema stores close as a price),
+		// not the source's currency label. The unit is what a factor's declared
+		// input unit is checked against, so a declaration in the wrong vocabulary
+		// blocks every run that reads the field.
 		"mapping": []map[string]any{
-			{"source_field": "close", "target_field": "close", "source_unit": "CNY", "target_unit": "CNY", "scale": "1"},
-			{"source_field": "price", "target_field": "price", "source_unit": "CNY", "target_unit": "CNY", "scale": "1"},
+			{"source_field": "close", "target_field": "close", "source_unit": "CNY", "target_unit": "price", "scale": "1"},
+			{"source_field": "price", "target_field": "price", "source_unit": "CNY", "target_unit": "price", "scale": "1"},
 		},
 		"timezone":                "UTC",
 		"availability_policy_ref": map[string]any{"id": "default-policy", "version": "v1"},
