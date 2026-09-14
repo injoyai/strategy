@@ -33,6 +33,7 @@ type acceptanceStack struct {
 	t       *testing.T
 	dbPath  string
 	db      *sql.DB
+	data    *data.Store
 	clk     *ports.FixedClock
 	client  *http.Client
 	ts      *httptest.Server
@@ -140,6 +141,7 @@ func (s *acceptanceStack) start() {
 		Log:      silentLogger(),
 	}).Run(loopCtx)
 	s.db = db
+	s.data = dataStore
 	s.ts = httptest.NewServer(api.Handler())
 	s.client = &http.Client{Timeout: 15 * time.Second}
 }
