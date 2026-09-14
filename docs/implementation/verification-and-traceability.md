@@ -106,7 +106,7 @@
 | SC-AC-07 | `ScreenRun_VersionAndContextImmutable`：换 snapshot/as_of 创建新 Run，旧方案/结果保持 |
 | SC-AC-08 | `ScreenRun_JobRecoveryAndFencing`：并发、取消、重启、旧租约只有一个终态/结果 |
 | SC-AC-09 | `ScreenOutput_UsesFrozenFullScope`：保存池用完整入选，导出 scope 与冻结结果一致，不取当前页 |
-| SC-AC-10 | `DerivedUniverse_RejectsUseBeforeSelectionAsOf`：回测前置时点拒绝，quality limits 保留 |
+| SC-AC-10 | 选股侧已可执行（回测侧待 S4）：`screenrun` 拒绝 `Universe.source.as_of > req.as_of` 的名单用法（error 级 `screenrun.universe_selection_after_as_of`，422），quality limits 随 `source.quality_limits` 保留 |
 | SC-AC-11 | 浏览器：无手写 JSON 完成成功/预检失败/断线/键盘/窄屏，失败保留输入，空结果可解释 |
 | SC-AC-12 | `ScreenAuthAndCursor_WorkspaceBound`：越权 run/explanation/artifact 与过期/失配 cursor 按统一契约拒绝 |
 

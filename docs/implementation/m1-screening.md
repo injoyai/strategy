@@ -190,7 +190,8 @@ Summary 计数互斥且守恒：
 - **请求体只有 `name`**：入选名单由服务端逐页读完全部 selected 行（`selectedMembers`），因为用当前页或客户端过滤后的列表保存，会静默存下与 Run 不同的池；客户端传 `members` 会因 `validation.unknown_field` 被拒。
 - **契约补齐**：`Universe` 原本没有任何字段能承载来源证据（`additionalProperties: false`），SC-AC-09/10 因此无法通过契约表达，于是给 `Universe` 增加了可选 `source`（nullable `ScreenUniverseSource`）。`source` 与 name、snapshot 绑定一样**不进 definition_hash**（它不改变选中了谁，只记录何时、在什么限制下选中），存储上是 `universe_versions.source_json`（`''` 表示非 Run 保存），有测试断言同一定义带/不带 source 的 hash 相同。
 - **quality limits 来自 Run 自己**：Run 在发布时冻结其非 error 级 finding 的 code（`screen_runs.quality_limits_json`，migration 00011，写进规范 artifact），保存池时复制到 `source.quality_limits`。“探索质量限制不丢失”因此是搬运既有证据，而不是重新推断。
-- 未交付：`/screen-runs/{id}/exports`（导出 Job）、以及 S4 里“用 t 时点名单做 t 之前决策 → 拒绝”的判定（本次只把判定所需的证据落库）。
+- **时点不可回填已在选股侧落地**（SC-AC-10 的前半）：`source.as_of` 就是这份名单的选择时点，`screenrun.resolve` 现在要求 `source.as_of <= req.as_of`，否则 error 级 `screenrun.universe_selection_after_as_of`（消息里同时给出名单选择时点与本次决策时点）→ 预检 `valid=false`、提交 422。名单本可以用当时还看不到的数据挑出来，把这份选择摊到更早的决策上等于回填一个当时无人能做的决定；判定所需证据（`Universe.source`）在保存时就已落库，这一步只是开始消费它。回测侧的同一规则仍在 S4。
+- 未交付：`/screen-runs/{id}/exports`（导出 Job）、以及 S4 里“用 t 时点名单做 t 之前决策 → 拒绝”的回测侧判定（选股侧的同一判定已交付，见上）。
 
 ## 7. S3 前端闭环
 
