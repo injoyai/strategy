@@ -178,6 +178,7 @@ Summary 计数互斥且守恒：
 - **分页**：`ordinal` 键集顺序（隐藏 rank ⇒ 排除行天然排在最后）；游标用 scope 绑定 run + 冻结 result hash + state 过滤，换用即 400，过期 422 `pagination.cursor_expired`。
 - **规范结果 artifact**：summary + columns + 全部行以规范 JSON 经内容寻址写入 artifact store，其 checksum 即 `result_hash`，导出与展示可据此核对一致。
 - **列描述**：`columns` 由冻结行自身推导（观测到的 kind ⇒ Field.type，缺失该列的任一行 ⇒ nullable），从不全的列保持 `unknown`，与数据集目录同一口径。
+- **行与阈值的 Value 形状走数据面同一映射**（2026-09-14 修正）：契约的 `Value` 把 `value` 与 `missing_reason` 都列为必需（不适用时为显式 null），而 `domain.Value` 的两个字段带 `omitempty`，直接序列化会在"缺失格子"上丢掉 `value`、在"有值格子"上丢掉 `missing_reason`——客户端看到的是"字段不存在"而不是"显式 null"。现在 `screenRowWire.values` 与 `screenNodeWire.threshold` 都改走数据面已用的 `wireValueOf`：缺失格子输出 `{"kind":...,"value":null,"missing_reason":"missing_value"}`，有值格子输出 `{"kind":"decimal","value":"10.40","missing_reason":null}`；既无编码又无缺失原因的格子按内部错误 fail-closed（这类格子是损坏的证据，不是 null）。回归测试见 `internal/server/screenruns_test.go` 的 `TestScreenRowValuesCarryBothContractKeys`。
 - 未交付：S2-03 的静态池保存与导出端点。
 
 ### S2-03 静态池与导出
