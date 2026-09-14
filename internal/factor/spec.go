@@ -29,9 +29,11 @@ const (
 
 // FactorRef addresses one registered factor by id and version. String is
 // "id@version" — the key used by memo maps, dep frames and messages.
+// The JSON tags make refs self-describing wherever a ref is embedded in
+// an artifact payload (e.g. the D6 analysis artifact config).
 type FactorRef struct {
-	ID      string
-	Version string
+	ID      string `json:"id"`
+	Version string `json:"version"`
 }
 
 // String renders "id@version".

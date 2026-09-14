@@ -236,6 +236,23 @@ func (r *Registry) DefinitionHash(ref FactorRef) (string, error) {
 	return r.checksummer.Checksum(encoded), nil
 }
 
+// CanonicalParams validates supplied parameters against the spec and
+// returns the canonical typed map with defaults filled in. Analysis
+// uses it to freeze, fail-closed, the exact parameters an artifact was
+// computed with; the coercion rules are the ones CacheKey shares, so a
+// canonical map here hashes identically there.
+func (r *Registry) CanonicalParams(ref FactorRef, supplied map[string]any) (map[string]any, error) {
+	spec, err := r.Lookup(ref)
+	if err != nil {
+		return nil, err
+	}
+	params, problems := canonicalParams(spec, supplied)
+	if len(problems) > 0 {
+		return nil, domain.NewError(codeRequestInvalid, "factor: params for %s invalid: %s", ref, summarizeProblems(problems))
+	}
+	return params, nil
+}
+
 // CacheKeyRequest carries everything that determines one run's output:
 // the snapshot content, the universe selection, the factor, the
 // parameters, the window and the availability policy. Any field change

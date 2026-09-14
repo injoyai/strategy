@@ -870,6 +870,46 @@ func TestCacheLifecycle(t *testing.T) {
 	}
 }
 
+func TestCanonicalParams(t *testing.T) {
+	registry, err := NewRegistry(ports.SHA256Checksummer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := RegisterDefaults(registry); err != nil {
+		t.Fatal(err)
+	}
+
+	// Omitted optional parameters fall back to the declared default.
+	params, err := registry.CanonicalParams(momentumRef(), nil)
+	if err != nil {
+		t.Fatalf("canonical params: %v", err)
+	}
+	if got := params["n"]; got != int64(20) {
+		t.Fatalf("default n = %v (%T), want int64(20)", got, got)
+	}
+
+	// JSON-decoded integral floats coerce to the canonical int64.
+	params, err = registry.CanonicalParams(momentumRef(), map[string]any{"n": float64(5)})
+	if err != nil {
+		t.Fatalf("canonical params: %v", err)
+	}
+	if got := params["n"]; got != int64(5) {
+		t.Fatalf("n = %v (%T), want int64(5)", got, got)
+	}
+
+	// Violations fail closed with the factor request code; every problem
+	// is reported in one round — the contract analysis relies on when
+	// freezing an artifact's parameters.
+	_, err = registry.CanonicalParams(momentumRef(), map[string]any{"n": "soon", "ghost": 1})
+	assertErr(t, err, codeRequestInvalid, "must be a integer")
+	_, err = registry.CanonicalParams(momentumRef(), map[string]any{"n": 0})
+	assertErr(t, err, codeRequestInvalid, "below minimum")
+
+	// Unknown refs pass the factor error through untouched.
+	_, err = registry.CanonicalParams(FactorRef{ID: "ghost", Version: "1.0.0"}, nil)
+	assertErr(t, err, codeNotRegistered, "not registered")
+}
+
 func TestEngineCacheRoundTrip(t *testing.T) {
 	engine, registry, cache := newTestEngine(t, standardBars()...)
 	ctx := context.Background()
