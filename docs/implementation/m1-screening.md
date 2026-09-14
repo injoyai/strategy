@@ -1,6 +1,6 @@
 # M1S 选股功能实施
 
-版本：0.3，2026-09-14。状态：S1-01..S1-04 契约与纯规则已落地；S2 首切片已落地——ScreenerVersion 的 wire 模型与持久化：`internal/screening/wire.go` 按契约 oneOf 逐分支编解码（range 恒发 null 边界、factor binding 恒发 params、缺 factor_ref 拒绝解码），`screener_versions` 以 (workspace, id, version) 为主键、`id` 是方案身份而 `version` 是不可变修订，`parent_id` 追加 `v<N+1>`（修订号在写事务内推导），`definition_hash` 只覆盖规则契约（不含 name/description/parent_id，与 universe version 同规则），`GET /screeners/{id}` 补齐 required `version` query（与 `/factors/{id}` 一致），端点 `/screeners`（列表/创建）与 `/screeners/{id}` 已实现。S2 其余（Preflight、ScreenRun Job handler、Run/rows/explanations 存储与查询、静态池与导出）与 S3/S4 尚未开始。设计来源为 [选股功能设计](../stock-screening-design.md)。SCREEN-01..08 与 SC-AC-01..12 已进入主需求与 OpenAPI；其余端点、Go/TS handler 与页面尚未实现，本文件定义接入步骤，不表示功能已经存在。
+版本：0.4，2026-09-14。状态：S1-01..S1-04 契约与纯规则已落地；S2 已分两次落地——(1) ScreenerVersion 的 wire 模型与持久化：`internal/screening/wire.go` 按契约 oneOf 逐分支编解码（range 恒发 null 边界、factor binding 恒发 params、缺 factor_ref 拒绝解码），`screener_versions` 以 (workspace, id, version) 为主键、`id` 是方案身份而 `version` 是不可变修订，`parent_id` 追加 `v<N+1>`（修订号在写事务内推导），`definition_hash` 只覆盖规则契约（不含 name/description/parent_id，与 universe version 同规则），`GET /screeners/{id}` 补齐 required `version` query（与 `/factors/:id` 一致），端点 `/screeners`（列表/创建）与 `/screeners/{id}` 已实现；(2) ScreenRun preflight：新增 `internal/screenrun` 编排层（不放进 `internal/screening`，因为 `ports` 已导入 `screening`，反向导入会成环），`POST /screen-runs/preflight` 解析冻结的 screener/universe 版本、要求 universe 的 `definition_hash` 作为不可变 pin、校验 universe 与快照绑定一致、在绑定快照的视图上于 as_of 解析母池、做结构性规则校验，并按绑定给出 coverage——factor 绑定校验注册与参数规范化（失败为 error 级），field 绑定在当前无法解析时显式报告 `screenrun.catalog_unavailable`（warning 级，不冒充可用）。**尚未实现**：field 绑定的类型/单位校验与因子数据可用性（PIT/lookback/staleness）评估，二者分别被“数据集字段元数据未持久化”和“窗口推导策略未定义”阻塞；estimated_scan_rows/estimated_rows 暂为 null（与 factor preflight 同口径）；Run/rows/explanations 存储与查询、静态池与导出、S3/S4 均未开始。设计来源为 [选股功能设计](../stock-screening-design.md)。SCREEN-01..08 与 SC-AC-01..12 已进入主需求与 OpenAPI；其余端点、Go/TS handler 与页面尚未实现，本文件定义接入步骤，不表示功能已经存在。
 
 ## 1. 目标与非目标
 
@@ -185,7 +185,7 @@ Summary 计数互斥且守恒：
 | S1-02 | 输入能力目录 | field/factor schema、Snapshot 不可用说明 |
 | S1-03 | 条件树、三值逻辑与解释 | 真值表、类型/单位、unknown/NOT 属性测试（`internal/screening/truth_test.go` 的 Kleene 表、SC-AC-02 负小数比较、范围/集合全覆盖） |
 | S1-04 | 稳定排序、百分位评分与 top_n | 单元素/同值/分片/分页 oracle（`ranking_test.go` 的 m=1/全等→0.5、平局平均秩、shuffle oracle；`engine_test.go` 守恒/fail_run/空因） |
-| S2-01 | Preflight、Engine 与 Job handler | PIT、空母池、取消/恢复/fencing |
+| S2-01 | Preflight、Engine 与 Job handler | PIT、空母池、取消/恢复/fencing（preflight 已交付：`/screen-runs/preflight` + `internal/screenrun`，覆盖解析/绑定/结构与逐绑定 coverage；引擎计算、Job handler 与 PIT/窗口级检查待做） |
 | S2-02 | 版本/Run/结果存储与查询 | 迁移、原子发布、Summary 守恒、游标（版本部分已交付：`screener_versions` + `/screeners` CRUD + `GET /screeners/{id}?version=`） |
 | S2-03 | 静态池与导出 | 来源时点、完整 scope、许可与 CSV 安全 |
 | S3 | 四个页面的完整路径 | 成功/失败/断线/键盘/窄视口 |
