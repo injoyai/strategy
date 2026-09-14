@@ -129,6 +129,24 @@
 | RP-AC-13 | `ReplayAuth_AllNestedResourcesWorkspaceAndSessionBound`：订单、解释、事件、下载不能靠 ID 越权 |
 | RP-AC-14 | `ReplayRetry_CreatesNewSourceLinkedSession`：旧会话不可改，新会话保存 source/seen range，不冒充未见样本 |
 
+### 3.3 真实进程验收（选股闭环）
+
+除 Go 测试内的验收栈外，选股闭环还跑过一次**真实进程**验收：`go build ./cmd/researchd` → 用独立配置（独立端口与独立数据库）启动 → 依次调用 `/connections`、`/ingestions`、`/snapshots`、`/universes`、`/screeners`、`/screen-runs/preflight`、`/screen-runs`、`/screen-runs/{id}/rows`、`/screen-runs/{id}/explanations/{instrument}`、`/screen-runs/{id}/universe`，并复核两条拒绝路径。
+
+通过判据（2026-09-14 本机，21/21）：
+
+- 摄取产出 batch、快照有 manifest hash、静态池有 definition hash、方案修订为 `v1`。
+- 预检 `valid=true` 且带 `insufficient_history` warning（成员缺口是阶段不是失败）、`estimated_rows=2`。
+- 运行发布 `screen_run`，汇总 `population=2, selected=1`，冻结的 `snapshot_hash` 与快照一致。
+- 行序：INST_A rank 1 / `px=11.40`，INST_B `condition_false` 且无 rank；解释为单个条件根 `cheap`/`true` 且评分分量百分位 `0.5`。
+- 保存池带 `source`（run、snapshot hash、quality limits）。
+- 用该池做**更早**决策：预检 `valid=false` 且含 `screenrun.universe_selection_after_as_of`，提交 422 `screenrun.preflight_failed`。
+- `source_run_id` 指向不存在的 Run：404 `resource.not_found`。
+
+这一层覆盖 Go 测试覆盖不到的部分：真实配置解析、真实迁移（1..11）、真实 worker 轮询与真实 HTTP 错误信封。
+
+**未完成**：SC-AC-11 的浏览器部分（无手写 JSON 完成闭环、断线、键盘、窄视口）本轮未能执行——本机 TRAE Chrome 扩展未响应（`Failed to connect to the TRAE Chrome extension`），仓库内也没有 Playwright/Puppeteer（新增端到端依赖需要先获授权）。在此之前 SC-AC-11 只有组件级测试（`ScreenRunPage.test.tsx` 等），不构成完整验收。
+
 ## 4. CI 与本地验证入口
 
 当前统一入口为 `scripts/verify.ps1`，执行 gofmt、go vet、go test、OpenAPI 生成/结构/差异检查，以及前端生成、typecheck、build、test；`-SkipWeb` 仅用于明确不涉及前端的快速检查。随着选股/Replay 增加以下语义套件，可由 Go package、PowerShell 参数或 CI job 承载，但必须继续由统一入口调用：
