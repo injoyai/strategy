@@ -209,11 +209,17 @@ describe("ScreenRunPage", () => {
     expect(saved?.body).toEqual({ name: "动量池" });
   });
 
-  it("refuses to save an empty selection and does not offer the action", async () => {
+  it("refuses to save an empty selection and says why it was empty", async () => {
     runResponse = () =>
-      Response.json({ ...publishedRun(), summary: { ...publishedRun().summary, selected: 0, not_selected: 1 } });
+      Response.json({
+        ...publishedRun(),
+        summary: { ...publishedRun().summary, selected: 0, not_selected: 1, empty_reason: "no_rankable_instruments" },
+      });
     renderPage();
     await screen.findByText("本次运行没有入选标的");
+    // An empty result is a successful outcome, not a silent one: the stage that
+    // emptied it is the server's fact and the page reports it as-is.
+    expect(screen.getByText("no_rankable_instruments")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /保存为静态标的池/ })).toBeNull();
   });
 });

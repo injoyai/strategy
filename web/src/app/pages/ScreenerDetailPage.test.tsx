@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ScreenerDetailPage } from "./ScreenerDetailPage";
@@ -194,5 +195,55 @@ describe("ScreenerDetailPage", () => {
     // The pool's version pin is its definition hash, so the run cannot drift from
     // the membership it selected.
     expect(submitted.universe_ref).toEqual({ id: "uni_1", version: "defhash_1" });
+  });
+
+  it("keeps every input when a preflight is refused", async () => {
+    preflightResponse = () =>
+      Response.json({
+        valid: false,
+        issues: [
+          { code: "screenrun.unit_mismatch", path: "input_bindings[mom]", message: "unit mismatch", severity: "error" },
+        ],
+        coverage: [],
+        estimated_scan_rows: null,
+        estimated_rows: null,
+      });
+    renderPage();
+    await fillRunForm();
+    fireEvent.change(screen.getByLabelText("决策时区"), { target: { value: "Asia/Tokyo" } });
+    fireEvent.click(screen.getByRole("button", { name: /预\s*检/ }));
+    await waitFor(() => expect(screen.getByText(/预检未通过/)).toBeTruthy());
+    // A refusal is exactly when the operator has to fix one finding and retry, so
+    // the draft has to survive it: losing the snapshot, pool, time and zone would
+    // force re-entering the whole request.
+    expect((screen.getByLabelText("决策时点 as_of") as HTMLInputElement).value).toBe("2026-01-15T00:00:00Z");
+    expect((screen.getByLabelText("决策时区") as HTMLInputElement).value).toBe("Asia/Tokyo");
+    // The selects still show what was chosen, not their placeholder.
+    const snapshotSelect = screen.getByLabelText("快照").closest(".ant-select") as HTMLElement;
+    expect(within(snapshotSelect).getByText("快照一 · snap_1")).toBeTruthy();
+    const universeSelect = screen.getByLabelText("标的池版本").closest(".ant-select") as HTMLElement;
+    expect(within(universeSelect).getByText("测试池 · uni_1 · 静态")).toBeTruthy();
+  });
+
+  it("reaches the preflight from the keyboard alone", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await fillRunForm();
+    // Activating a focused button with Enter is the browser's own affordance; a
+    // page that only worked on click would fail here.
+    screen.getByRole("button", { name: /预\s*检/ }).focus();
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(calls.some((call) => call.url.includes("/screen-runs/preflight"))).toBe(true));
+    await waitFor(() => expect(screen.getByText(/预检通过/)).toBeTruthy());
+  });
+
+  it("submits the run from a form field with Enter", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await fillRunForm();
+    const asOf = screen.getByLabelText("决策时点 as_of");
+    asOf.focus();
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(calls.some((call) => call.url.endsWith("/screen-runs"))).toBe(true));
   });
 });
