@@ -1,6 +1,6 @@
 # M1 数据、快照与因子实施
 
-版本：0.1，2026-09-14。状态：M1-05..08 快照发布、PIT DataView、UniverseVersion resolver、Factor registry/DAG/preflight/cache 与因子分析 artifact 已落地并按 synthetic 数据验证（Snapshot 幂等发布与 canonical manifest、effective 生效窗口、replay_time 二级上界、static/historical_rule 定义与 canonical hash、快照绑定校验、经 DataView 的历史成员解析与 CacheKey、builtin/expression 统一注册与无环 DAG 校验、单轮 preflight 一次返回全部问题、暂存式缓存 Stage/Publish/Abort、AC-03/04/05 反例单测、标签仅经 LabelSet 显式输入并以 import 白名单固化隔离、逐日覆盖/缺失原因随时间变化与 null+reason、IC/Rank IC/分位分组/高低价差与按 horizon 衰减、训练/验证/测试段标签与样本数及未覆盖日期报告、canonical artifact 与 checksum 字节级确定性）；M1-01..04 真实 Provider 链路受 DEC-01/02 阻塞，M1-09 起未开始。
+版本：0.1，2026-09-14。状态：M1-05..08 快照发布、PIT DataView、UniverseVersion resolver、Factor registry/DAG/preflight/cache 与因子分析 artifact 已落地并按 synthetic 数据验证（Snapshot 幂等发布与 canonical manifest、effective 生效窗口、replay_time 二级上界、static/historical_rule 定义与 canonical hash、快照绑定校验、经 DataView 的历史成员解析与 CacheKey、builtin/expression 统一注册与无环 DAG 校验、单轮 preflight 一次返回全部问题、暂存式缓存 Stage/Publish/Abort、AC-03/04/05 反例单测、标签仅经 LabelSet 显式输入并以 import 白名单固化隔离、逐日覆盖/缺失原因随时间变化与 null+reason、IC/Rank IC/分位分组/高低价差与按 horizon 衰减、训练/验证/测试段标签与样本数及未覆盖日期报告、canonical artifact 与 checksum 字节级确定性）；M1-09 后端 API 闭环已落地：universes CRUD/resolve、factors list/detail、同步 factor-runs preflight/run、factor-analyses 全流程通过 research 编排层与 artifact 存储，错误码映射（factor.request_invalid→400 / factor.not_registered→404 / factor.preflight_failed→422）与幂等重试覆盖；M1-01..04 真实 Provider 链路受 DEC-01/02 阻塞，前端页面闭环（成功/失败/重试）留待下一会话。
 
 前置：`GATE-M0-DONE` 与 `GATE-M1-START`。目标是在已确认的一个市场、资产类别、主频率和真实数据源上，完成可追溯的数据建设与基础因子分析。未批准 DEC-01/02/03 时，只能继续 synthetic、import 和市场无关规则，不能声称完成 M1。
 
@@ -160,7 +160,7 @@ Run 预检一次返回全部问题：数据集/字段缺失、历史不足、PIT
 | M1-06 | UniverseVersion 与 resolver | M1-05 | AC-04 |
 | M1-07 | Factor registry/DAG/preflight/cache | M1-05/06 | AC-05、循环/历史/PIT |
 | M1-08 | 因子分析与 artifact | M1-07 | 覆盖/null reason/标签隔离 |
-| M1-09 | 数据、标的池、因子页面闭环 | API 完成 | 仅界面跑通成功/失败/重试 |
+| M1-09 | 数据、标的池、因子页面闭环 | 后端 API 闭环（universes/factors/analyses + research 编排 + 错误码 + 幂等）；前端页面闭环留待下一会话 | 仅界面跑通成功/失败/重试 |
 
 ## 9. 向选股与历史复盘提供的边界
 
