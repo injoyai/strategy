@@ -166,4 +166,7 @@ type DataView interface {
 	Query(context.Context, domain.DataQuery) (domain.PageResult[domain.Observation], error)
 	DatasetInstruments(context.Context, string, string) ([]domain.ID, error)
 	RecentEventTimes(context.Context, string, string, []domain.ID, int) ([]time.Time, error)
+	// LatestValues resolves one field's most recent visible value per
+	// instrument — the primitive a screening run reads its field inputs with.
+	LatestValues(context.Context, string, string, string, []domain.ID) (map[domain.ID]domain.Value, error)
 }

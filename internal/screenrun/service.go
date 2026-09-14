@@ -75,6 +75,58 @@ type Preflight struct {
 	EstimatedRows     *int
 }
 
+// Result is one computed screening run: the mutually exclusive stage counts and
+// the frozen rows, in the engine's canonical order (selected and rankable rows
+// by rank, then excluded rows by instrument).
+type Result struct {
+	Summary screening.Summary
+	Rows    []screening.Row
+}
+
+// ScoringPolicyVersion names the versioned scoring policy every run is computed
+// under — the value the contract's ScreenRun.scoring_policy_version reports.
+// Scoring places, tie handling and rounding are versioned because changing them
+// changes published ranks.
+const ScoringPolicyVersion = "scoring-policy/1"
+
+// scoringPolicy returns the policy behind ScoringPolicyVersion: scores are
+// rounded at the engine's maximum supported precision (12 places, the bound the
+// engine validates against) with banker's rounding, so a published score is
+// reproducible without discarding digits the engine computed.
+func scoringPolicy() screening.Scoring {
+	return screening.Scoring{Places: 12, Rounding: domain.RoundHalfEven}
+}
+
+// runPolicy assembles the engine policy for one request: the frozen required
+// value policy plus the versioned scoring policy.
+func runPolicy(req Request) screening.Policy {
+	return screening.Policy{
+		RequiredValue: screening.RequiredValuePolicy(req.RequiredValuePolicy),
+		Scoring:       scoringPolicy(),
+	}
+}
+
+// resolved is everything one frozen request resolves to: the immutable
+// versions it pins, the view and mother pool it reads, the rule set, the input
+// catalog the rule set is validated against, and the findings that came out of
+// resolving it.
+type resolved struct {
+	universe domain.UniverseVersion
+	snapshot domain.Snapshot
+	view     ports.DataView
+	members  []domain.ID
+	def      screening.Definition
+	catalog  screening.InputTypes
+	coverage []Coverage
+	issues   []domain.Issue
+	// windows is the derived factor input window per factor binding; dates is
+	// the widest window's date count.
+	windows     map[domain.ID]time.Time
+	windowDates int
+}
+
+func (r *resolved) hasErrors() bool { return hasError(r.issues) }
+
 // Preflight checks a run without computing anything. An error return means the
 // request cannot be evaluated at all (malformed, a referenced version does not
 // exist, or the infrastructure underneath failed); a nil error with
@@ -82,13 +134,72 @@ type Preflight struct {
 // detectable from the frozen inputs.
 //
 // What is deliberately not claimed here:
-//   - field bindings cannot be resolved yet: the ingestion field mapping
-//     (units in particular) is not persisted, so there is no input catalog to
-//     check dataset/field/unit against. They are reported as unavailable with
-//     an explicit reason instead of being assumed usable.
-//   - the rule set is validated structurally only, for the same reason: with no
-//     catalog, literal kinds and units have nothing to be compared against.
+//   - the rule set is validated against what the dataset catalog knows, so a
+//     condition's operator and literal kind are checked; what the catalog
+//     cannot type (a factor's output kind, a field with no observed values)
+//     stays an explicit unknown and its kind checks are skipped rather than
+//     assumed.
+//   - units are not compared: the rule engine compares value kinds, and a
+//     condition literal carries no unit, so unit compatibility has no hook yet
+//     even though the catalog records units.
 func (s *Service) Preflight(ctx context.Context, req Request) (*Preflight, error) {
+	res, err := s.resolve(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	out := &Preflight{
+		Issues:   append([]domain.Issue{}, res.issues...),
+		Coverage: res.coverage,
+	}
+	if len(res.members) == 0 {
+		out.Issues = append(out.Issues, domain.Issue{
+			Code:     codeEmptyPopulation,
+			Path:     "universe_ref",
+			Message:  "the mother pool has no members at this decision time; the run would succeed with an empty result",
+			Severity: domain.SeverityWarning,
+		})
+	}
+	if res.windowDates > 0 {
+		// One scanned row per member per date in the derived window; one result
+		// row per member. Both are derived from the resolved inputs, never
+		// guessed from the rule set alone.
+		scanRows := len(res.members) * res.windowDates
+		resultRows := len(res.members)
+		out.EstimatedScanRows = &scanRows
+		out.EstimatedRows = &resultRows
+	}
+	out.Valid = !hasError(out.Issues)
+	return out, nil
+}
+
+// Execute computes one run over the frozen inputs. It re-resolves everything
+// (the contract re-validates on submission) and refuses to compute when
+// resolution produced any error-severity finding: a run whose inputs are known
+// to be unusable would publish a result that looks authoritative and is not.
+func (s *Service) Execute(ctx context.Context, req Request) (*Result, error) {
+	res, err := s.resolve(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	if res.hasErrors() {
+		return nil, domain.NewError(codePreflightFailed, "screenrun: preflight failed: %s", summarizeIssues(res.issues))
+	}
+	universe, err := s.instrumentInputs(ctx, res)
+	if err != nil {
+		return nil, err
+	}
+	computed, err := screening.Run(res.def, res.catalog, runPolicy(req), screening.DefaultLimits(), universe)
+	if err != nil {
+		return nil, err
+	}
+	return &Result{Summary: computed.Summary, Rows: computed.Rows}, nil
+}
+
+// resolve performs the shared resolution both Preflight and Execute need:
+// pinned versions, snapshot binding, strict PIT, the mother pool through a
+// pinned view, the rule set, the input catalog and every finding that comes out
+// of that.
+func (s *Service) resolve(ctx context.Context, req Request) (*resolved, error) {
 	if err := req.validate(); err != nil {
 		return nil, err
 	}
@@ -135,57 +246,32 @@ func (s *Service) Preflight(ctx context.Context, req Request) (*Preflight, error
 	if err != nil {
 		return nil, err
 	}
-
-	result := &Preflight{}
-	catalog, coverage, bindingIssues, windowDates, err := s.resolveBindings(ctx, def, view, members, universe, snapshot)
-	if err != nil {
+	res := &resolved{
+		universe: universe,
+		snapshot: snapshot,
+		view:     view,
+		members:  members,
+		def:      def,
+	}
+	if err := s.resolveBindings(ctx, res); err != nil {
 		return nil, err
 	}
 	// Validation runs with the resolved catalog so literal kinds and operators
 	// are checked against what the inputs actually are; a binding the catalog
 	// cannot type stays an explicit unknown and its kind checks are skipped
 	// rather than assumed.
-	result.Issues = append(result.Issues, screening.Validate(def, catalog, screening.DefaultLimits())...)
-	result.Coverage = coverage
-	result.Issues = append(result.Issues, bindingIssues...)
-	if len(members) == 0 {
-		result.Issues = append(result.Issues, domain.Issue{
-			Code:     codeEmptyPopulation,
-			Path:     "universe_ref",
-			Message:  "the mother pool has no members at this decision time; the run would succeed with an empty result",
-			Severity: domain.SeverityWarning,
-		})
-	}
-	if windowDates > 0 {
-		// One scanned row per member per date in the derived window; one result
-		// row per member. Both are derived from the resolved inputs, never
-		// guessed from the rule set alone.
-		scanRows := len(members) * windowDates
-		resultRows := len(members)
-		result.EstimatedScanRows = &scanRows
-		result.EstimatedRows = &resultRows
-	}
-	result.Valid = !hasError(result.Issues)
-	return result, nil
+	res.issues = append(screening.Validate(def, res.catalog, screening.DefaultLimits()), res.issues...)
+	return res, nil
 }
 
 // resolveBindings resolves every declared binding, records why one is unusable
-// and returns the input catalog the rule set is validated against. It also
-// returns the highest date count any factor window covered, which the scan
-// estimate is built from.
-func (s *Service) resolveBindings(
-	ctx context.Context,
-	def screening.Definition,
-	view ports.DataView,
-	members []domain.ID,
-	universe domain.UniverseVersion,
-	snapshot domain.Snapshot,
-) (screening.InputTypes, []Coverage, []domain.Issue, int, error) {
+// and fills the input catalog the rule set is validated against.
+func (s *Service) resolveBindings(ctx context.Context, res *resolved) error {
 	catalog := screening.InputTypes{}
+	windows := map[domain.ID]time.Time{}
 	var coverage []Coverage
 	var issues []domain.Issue
-	windowDates := 0
-	for _, binding := range def.InputBindings {
+	for _, binding := range res.def.InputBindings {
 		switch binding.Kind {
 		case screening.BindingFactor:
 			// A factor's output kind is not declared anywhere (its spec carries a
@@ -193,19 +279,22 @@ func (s *Service) resolveBindings(
 			// unknown: the validator then skips kind checks for it instead of
 			// assuming decimal.
 			catalog[binding.BindingID] = ""
-			cov, bindingIssues, dates, err := s.checkFactorBinding(ctx, binding, view, members, universe, snapshot)
+			result, err := s.checkFactorBinding(ctx, binding, res.view, res.members, res.universe, res.snapshot)
 			if err != nil {
-				return nil, nil, nil, 0, err
+				return err
 			}
-			coverage = append(coverage, cov)
-			issues = append(issues, bindingIssues...)
-			if dates > windowDates {
-				windowDates = dates
+			coverage = append(coverage, result.coverage)
+			issues = append(issues, result.issues...)
+			if !result.window.IsZero() {
+				windows[binding.BindingID] = result.window
+			}
+			if result.dates > res.windowDates {
+				res.windowDates = result.dates
 			}
 		case screening.BindingField:
 			kind, cov, problem, err := s.checkFieldBinding(ctx, binding)
 			if err != nil {
-				return nil, nil, nil, 0, err
+				return err
 			}
 			if problem != nil {
 				issues = append(issues, *problem)
@@ -220,7 +309,11 @@ func (s *Service) resolveBindings(
 			coverage = append(coverage, Coverage{BindingID: binding.BindingID, Available: false, Reason: &reason})
 		}
 	}
-	return catalog, coverage, issues, windowDates, nil
+	res.catalog = catalog
+	res.coverage = coverage
+	res.issues = issues
+	res.windows = windows
+	return nil
 }
 
 // checkFieldBinding resolves one field binding against the dataset catalog: the
@@ -278,6 +371,15 @@ func valueKindOf(fieldType domain.FieldType) domain.ValueKind {
 	}
 }
 
+// bindingResult is one resolved factor binding: its coverage, its findings and
+// the window it needs (zero when the factor declares no inputs).
+type bindingResult struct {
+	coverage Coverage
+	issues   []domain.Issue
+	window   time.Time
+	dates    int
+}
+
 // checkFactorBinding verifies one factor binding end to end: the version is
 // registered, its parameters canonicalize, a window wide enough for its
 // declared lookback exists in the snapshot, and the engine's own preflight
@@ -289,55 +391,78 @@ func (s *Service) checkFactorBinding(
 	members []domain.ID,
 	universe domain.UniverseVersion,
 	snapshot domain.Snapshot,
-) (Coverage, []domain.Issue, int, error) {
+) (bindingResult, error) {
 	ref := factor.FactorRef{ID: string(binding.FactorRef.ID), Version: binding.FactorRef.Version}
 	spec, err := s.registry.Lookup(ref)
 	if err != nil {
-		return unavailable(binding.BindingID, domain.ErrorCode(err)),
-			[]domain.Issue{issueFor(binding.BindingID, domain.ErrorCode(err), err.Error())}, 0, nil
+		return bindingResult{
+			coverage: unavailable(binding.BindingID, domain.ErrorCode(err)),
+			issues:   []domain.Issue{issueFor(binding.BindingID, domain.ErrorCode(err), err.Error())},
+		}, nil
 	}
 	params, err := s.registry.CanonicalParams(ref, binding.Params)
 	if err != nil {
-		return unavailable(binding.BindingID, domain.ErrorCode(err)),
-			[]domain.Issue{issueFor(binding.BindingID, domain.ErrorCode(err), err.Error())}, 0, nil
+		return bindingResult{
+			coverage: unavailable(binding.BindingID, domain.ErrorCode(err)),
+			issues:   []domain.Issue{issueFor(binding.BindingID, domain.ErrorCode(err), err.Error())},
+		}, nil
 	}
 	windowFrom, dates, problem, err := deriveWindow(ctx, view, members, spec, params)
 	if err != nil {
-		return Coverage{}, nil, 0, err
+		return bindingResult{}, err
 	}
 	if problem != nil {
-		return unavailable(binding.BindingID, problem.Code), []domain.Issue{*problem}, dates, nil
+		return bindingResult{
+			coverage: unavailable(binding.BindingID, problem.Code),
+			issues:   []domain.Issue{*problem},
+			dates:    dates,
+		}, nil
 	}
 	engine, err := factor.NewEngine(s.registry, view, s.cache)
 	if err != nil {
-		return Coverage{}, nil, 0, err
+		return bindingResult{}, err
 	}
 	problems, err := engine.Preflight(ctx, factor.RunRequest{
 		Ref:                ref,
 		Params:             params,
 		Members:            members,
-		Range:              domain.Interval{From: windowFrom, To: view.AsOf()},
+		Range:              factorWindow(windowFrom, view.AsOf()),
 		UniverseID:         universe.ID.String(),
 		UniverseHash:       universe.DefinitionHash,
 		SnapshotHash:       snapshot.ManifestHash,
 		AvailabilityPolicy: factor.AvailabilityPolicyAvailableAt,
 	})
 	if err != nil {
-		return Coverage{}, nil, 0, err
+		return bindingResult{}, err
 	}
 	if len(problems) > 0 {
 		bindingIssues := make([]domain.Issue, 0, len(problems))
 		for _, problem := range problems {
 			bindingIssues = append(bindingIssues, issueFor(binding.BindingID, problem.Code, problem.Message))
 		}
-		return unavailable(binding.BindingID, problems[0].Code), bindingIssues, dates, nil
+		return bindingResult{
+			coverage: unavailable(binding.BindingID, problems[0].Code),
+			issues:   bindingIssues,
+			dates:    dates,
+		}, nil
 	}
-	// No input at all means no data to check: registration and parameters were
-	// the whole contract.
-	if windowFrom.IsZero() {
-		return Coverage{BindingID: binding.BindingID, Available: true}, nil, 0, nil
+	return bindingResult{
+		coverage: Coverage{BindingID: binding.BindingID, Available: true},
+		window:   windowFrom,
+		dates:    dates,
+	}, nil
+}
+
+// factorWindow turns a derived window start into the half-open range the factor
+// engine requires. A factor that declares no inputs has no derived start, and
+// the engine insists on a non-empty half-open range, so the smallest range
+// before the decision time is used — it reads no data because nothing is
+// declared to read.
+func factorWindow(from, asOf time.Time) domain.Interval {
+	if from.IsZero() {
+		return domain.Interval{From: asOf.Add(-time.Nanosecond), To: asOf}
 	}
-	return Coverage{BindingID: binding.BindingID, Available: true}, nil, dates, nil
+	return domain.Interval{From: from, To: asOf}
 }
 
 // deriveWindow resolves the input window from the data instead of converting a
@@ -385,6 +510,94 @@ func deriveWindow(ctx context.Context, view ports.DataView, members []domain.ID,
 
 func unavailable(bindingID domain.ID, reason string) Coverage {
 	return Coverage{BindingID: bindingID, Available: false, Reason: &reason}
+}
+
+// instrumentInputs assembles the engine's per-member input values: factor
+// bindings come from a factor run over their derived window, field bindings
+// from each member's latest visible value. A member with no value for a binding
+// simply has no entry, which the engine reports as missing — never zero-filled.
+func (s *Service) instrumentInputs(ctx context.Context, res *resolved) ([]screening.InstrumentInputs, error) {
+	byMember := make(map[domain.ID]screening.Inputs, len(res.members))
+	for _, member := range res.members {
+		byMember[member] = screening.Inputs{}
+	}
+	for _, binding := range res.def.InputBindings {
+		switch binding.Kind {
+		case screening.BindingFactor:
+			frame, err := s.runFactorBinding(ctx, res, binding)
+			if err != nil {
+				return nil, err
+			}
+			for member, value := range frame.Values {
+				if inputs, ok := byMember[member]; ok {
+					inputs[binding.BindingID] = domain.Value{Kind: domain.ValueDecimal, Encoded: string(value)}
+				}
+			}
+			for member, reason := range frame.Missing {
+				if inputs, ok := byMember[member]; ok {
+					inputs[binding.BindingID] = domain.Value{MissingReason: reason}
+				}
+			}
+		case screening.BindingField:
+			// A field binding declares a dataset and a field but no frequency, so
+			// the latest visible value of that field is the only faithful reading:
+			// choosing a frequency here would invent a decision the screener never
+			// made, and the catalog reports the dataset's declared frequency for
+			// anyone who needs it.
+			values, err := res.view.LatestValues(ctx, binding.Dataset, "", binding.Field, res.members)
+			if err != nil {
+				return nil, err
+			}
+			for member, value := range values {
+				if inputs, ok := byMember[member]; ok {
+					inputs[binding.BindingID] = value
+				}
+			}
+		}
+	}
+	out := make([]screening.InstrumentInputs, 0, len(res.members))
+	for _, member := range res.members {
+		out = append(out, screening.InstrumentInputs{InstrumentID: member, Values: byMember[member]})
+	}
+	return out, nil
+}
+
+// runFactorBinding computes one factor binding over the run's pinned view and
+// the window resolution derived for it.
+func (s *Service) runFactorBinding(ctx context.Context, res *resolved, binding screening.InputBinding) (*factor.Frame, error) {
+	ref := factor.FactorRef{ID: string(binding.FactorRef.ID), Version: binding.FactorRef.Version}
+	params, err := s.registry.CanonicalParams(ref, binding.Params)
+	if err != nil {
+		return nil, err
+	}
+	engine, err := factor.NewEngine(s.registry, res.view, s.cache)
+	if err != nil {
+		return nil, err
+	}
+	return engine.Run(ctx, factor.RunRequest{
+		Ref:                ref,
+		Params:             params,
+		Members:            res.members,
+		Range:              factorWindow(res.windows[binding.BindingID], res.view.AsOf()),
+		UniverseID:         res.universe.ID.String(),
+		UniverseHash:       res.universe.DefinitionHash,
+		SnapshotHash:       res.snapshot.ManifestHash,
+		AvailabilityPolicy: factor.AvailabilityPolicyAvailableAt,
+	})
+}
+
+// summarizeIssues renders the error-severity findings into one message.
+// domain.Error surfaces only its message, so the findings travel inline instead
+// of being dropped on the wire.
+func summarizeIssues(issues []domain.Issue) string {
+	parts := make([]string, 0, len(issues))
+	for _, issue := range issues {
+		if issue.Severity != domain.SeverityError {
+			continue
+		}
+		parts = append(parts, issue.Code+" ("+issue.Path+"): "+issue.Message)
+	}
+	return strings.Join(parts, "; ")
 }
 
 func issueFor(bindingID domain.ID, code, message string) domain.Issue {

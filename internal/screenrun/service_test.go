@@ -30,6 +30,10 @@ func (f *fakeView) DatasetInstruments(context.Context, string, string) ([]domain
 	return nil, nil
 }
 
+func (f *fakeView) LatestValues(context.Context, string, string, string, []domain.ID) (map[domain.ID]domain.Value, error) {
+	return map[domain.ID]domain.Value{}, nil
+}
+
 func (f *fakeView) RecentEventTimes(_ context.Context, dataset, frequency string, _ []domain.ID, limit int) ([]time.Time, error) {
 	f.calls = append(f.calls, dataset+"/"+frequency)
 	if limit >= len(f.times) {

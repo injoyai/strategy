@@ -236,6 +236,84 @@ func (v *view) RecentEventTimes(ctx context.Context, dataset, frequency string, 
 	return times, nil
 }
 
+// LatestValues resolves one field's most recent visible value per instrument
+// under the same PIT filters as Query (manifest-bound batches, available_at <=
+// as_of, half-open effective window), applying the latest-revision rule per
+// instrument. Frequency is optional: the contract's screening field binding
+// declares a dataset and a field but no frequency, so an empty frequency reads
+// the dataset at any frequency and the latest value wins — a narrower read here
+// would invent a frequency decision the caller never made. There is
+// deliberately no lower time bound: a screening field input is the latest value
+// at the decision time, and whether that value is fresh enough is a staleness
+// policy decision, not a query default. Instruments with no visible row are
+// simply absent from the result — never zero-filled — and a stored missing
+// value keeps its missing reason.
+func (v *view) LatestValues(ctx context.Context, dataset, frequency, field string, instrumentIDs []domain.ID) (map[domain.ID]domain.Value, error) {
+	if dataset == "" || field == "" {
+		return nil, domain.NewError(domain.CodeValidationInvalid, "data query: dataset and field are required")
+	}
+	values := make(map[domain.ID]domain.Value, len(instrumentIDs))
+	if len(instrumentIDs) == 0 {
+		return values, nil
+	}
+	query := `
+		SELECT instrument_id, values_json
+		FROM observations
+		WHERE batch_id IN (SELECT batch_id FROM snapshot_batches WHERE snapshot_id = ? AND workspace = ?)
+		  AND workspace = ? AND dataset = ?
+		  AND instrument_id IN (` + placeholders(len(instrumentIDs)) + `)
+		  AND event_time < ?
+		  AND available_at <= ?
+		  AND (effective_from IS NULL OR (effective_from <= ? AND (effective_to IS NULL OR ? < effective_to)))`
+	args := make([]any, 0, len(instrumentIDs)+8)
+	args = append(args, v.snapshotID, workspaceDefault, workspaceDefault, dataset)
+	if frequency != "" {
+		query += `
+		  AND frequency = ?`
+		args = append(args, frequency)
+	}
+	for _, id := range instrumentIDs {
+		args = append(args, id.String())
+	}
+	args = append(args, v.asOf.UnixNano(), v.asOf.UnixNano(), v.asOf.UnixNano(), v.asOf.UnixNano())
+	query += `
+		ORDER BY instrument_id ASC, event_time ASC, available_at ASC, revision_id ASC, id ASC`
+
+	rs, err := v.store.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("data: query latest values: %w", err)
+	}
+	defer rs.Close()
+	for rs.Next() {
+		var (
+			instrumentID string
+			raw          []byte
+		)
+		if err := rs.Scan(&instrumentID, &raw); err != nil {
+			return nil, fmt.Errorf("data: scan latest value: %w", err)
+		}
+		var stored map[string]domain.Value
+		if err := json.Unmarshal(raw, &stored); err != nil {
+			return nil, domain.Wrap(err, domain.CodeInternalError, "data: decode observation values")
+		}
+		id := domain.ID(instrumentID)
+		value, ok := stored[field]
+		if !ok {
+			// A row that carries the dataset but not the requested field must not
+			// invent a value for it; the instrument simply stays absent.
+			delete(values, id)
+			continue
+		}
+		// Rows arrive oldest-first per instrument, so the last write wins — the
+		// latest revision of the latest event time.
+		values[id] = value
+	}
+	if err := rs.Err(); err != nil {
+		return nil, fmt.Errorf("data: iterate latest values: %w", err)
+	}
+	return values, nil
+}
+
 // scanObservation decodes one observations row into the domain record and
 // returns its natural key (instrument + entity + event time) used to
 // resolve the latest revision.

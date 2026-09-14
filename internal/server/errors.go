@@ -59,7 +59,14 @@ func StatusForError(code string) int {
 	case "screening.definition_invalid",
 		"screening.binding_invalid",
 		"screening.child_required",
-		"screening.input_unknown":
+		"screening.input_unknown",
+		// A required-value run failure is data-driven: the rule set is valid but
+		// the run refused to exclude its way to a result under the fail_run
+		// policy, which is a semantic validation outcome, not a server fault.
+		"screening.required_value_missing",
+		// Submission re-resolves the frozen inputs and refuses to compute when
+		// any error-severity finding comes out of it.
+		"screenrun.preflight_failed":
 		return http.StatusUnprocessableEntity
 	case domain.CodeAuthUnauthorized:
 		return http.StatusUnauthorized

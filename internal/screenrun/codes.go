@@ -19,4 +19,7 @@ const (
 	// codeFieldUnobserved: the field is declared but no value was ever
 	// observed, so its type is unknown and unit/kind checks cannot run.
 	codeFieldUnobserved = "screenrun.field_unobserved"
+	// codePreflightFailed: submission re-runs resolution and refuses to compute
+	// when any error-severity finding came out of it.
+	codePreflightFailed = "screenrun.preflight_failed"
 )
