@@ -1305,10 +1305,12 @@ export interface components {
             timezone: string;
             availability_policy_ref: components["schemas"]["VersionRef"];
         } & (unknown | unknown);
+        /** @description frequency is how often the dataset's rows were ingested; a reader asking for a frequency outside the list finds no rows. */
         Dataset: {
             id: string;
             name: string;
             schema_version: string;
+            frequencies: string[];
             fields: components["schemas"]["Field"][];
             natural_key: string[];
             availability_policy_ref: components["schemas"]["VersionRef"];

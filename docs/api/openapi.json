@@ -11188,6 +11188,12 @@
           "schema_version": {
             "type": "string"
           },
+          "frequencies": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
           "fields": {
             "type": "array",
             "items": {
@@ -11224,13 +11230,15 @@
           "id",
           "name",
           "schema_version",
+          "frequencies",
           "fields",
           "natural_key",
           "availability_policy_ref",
           "coverage",
           "quality_issues"
         ],
-        "additionalProperties": false
+        "additionalProperties": false,
+        "description": "frequency is how often the dataset's rows were ingested; a reader asking for a frequency outside the list finds no rows."
       },
       "Batch": {
         "type": "object",

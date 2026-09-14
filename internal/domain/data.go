@@ -111,6 +111,7 @@ type Dataset struct {
 	ID                    ID         `json:"id"`
 	Name                  string     `json:"name"`
 	SchemaVersion         string     `json:"schema_version"`
+	Frequencies           []string   `json:"frequencies"`
 	Fields                []Field    `json:"fields"`
 	NaturalKey            []string   `json:"natural_key"`
 	AvailabilityPolicyRef VersionRef `json:"availability_policy_ref"`

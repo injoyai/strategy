@@ -132,8 +132,15 @@ func (s *Store) buildDataset(ctx context.Context, name string) (domain.Dataset, 
 		Name:          name,
 		NaturalKey:    append([]string(nil), datasetNaturalKey...),
 		Fields:        []domain.Field{},
+		Frequencies:   []string{},
 		QualityIssues: []domain.Issue{},
 	}
+
+	frequencies, err := s.datasetFrequencies(ctx, name)
+	if err != nil {
+		return domain.Dataset{}, err
+	}
+	output.Frequencies = frequencies
 
 	declaration, err := s.datasetDeclaration(ctx, name)
 	if err != nil {
@@ -164,6 +171,33 @@ func (s *Store) buildDataset(ctx context.Context, name string) (domain.Dataset, 
 	}
 	output.QualityIssues = issues
 	return output, nil
+}
+
+// datasetFrequencies lists the frequencies the dataset's rows were ingested at.
+// Append writes one frequency on the batch and the same one on every row it
+// writes, so the batch-level list is the dataset's frequency list, and a reader
+// asking for a frequency outside it will find no rows.
+func (s *Store) datasetFrequencies(ctx context.Context, name string) ([]string, error) {
+	rs, err := s.db.QueryContext(ctx, `
+		SELECT DISTINCT frequency FROM batches
+		WHERE workspace = ? AND dataset_id = ? AND frequency <> ''
+		ORDER BY frequency ASC`, workspaceDefault, name)
+	if err != nil {
+		return nil, fmt.Errorf("data: read dataset frequencies: %w", err)
+	}
+	defer rs.Close()
+	frequencies := []string{}
+	for rs.Next() {
+		var frequency string
+		if err := rs.Scan(&frequency); err != nil {
+			return nil, fmt.Errorf("data: scan dataset frequency: %w", err)
+		}
+		frequencies = append(frequencies, frequency)
+	}
+	if err := rs.Err(); err != nil {
+		return nil, fmt.Errorf("data: iterate dataset frequencies: %w", err)
+	}
+	return frequencies, nil
 }
 
 // datasetDeclaration returns the newest declaration for a dataset. Later

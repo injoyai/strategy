@@ -84,10 +84,12 @@ S["IngestionCreate"] = obj({"connection_ref": ref("VersionRef"), "import_id": ID
     oneOf=[{"required": ["connection_ref"], "not": {"required": ["import_id"]}},
            {"required": ["import_id"], "not": {"required": ["connection_ref"]}}],
     description="Exactly one input source. force always calls the upstream source; imported data is re-normalized into a new batch.")
-S["Dataset"] = obj({"id": ID, "name": TEXT, "schema_version": TEXT, "fields": array(ref("Field")),
+S["Dataset"] = obj({"id": ID, "name": TEXT, "schema_version": TEXT, "frequencies": array(TEXT),
+    "fields": array(ref("Field")),
     "natural_key": array(TEXT), "availability_policy_ref": ref("VersionRef"), "coverage": nullable(ref("Range")),
     "quality_issues": array(ref("Issue"))},
-    ["id", "name", "schema_version", "fields", "natural_key", "availability_policy_ref", "coverage", "quality_issues"])
+    ["id", "name", "schema_version", "frequencies", "fields", "natural_key", "availability_policy_ref", "coverage", "quality_issues"],
+    description="frequency is how often the dataset's rows were ingested; a reader asking for a frequency outside the list finds no rows.")
 S["Batch"] = obj({"id": ID, "job_id": ID, "dataset_id": ID, "row_count": INT,
     "checksum": TEXT, "created_at": TIME, "issues": array(ref("Issue")), "ready": BOOL},
     ["id", "job_id", "dataset_id", "row_count", "checksum", "created_at", "issues", "ready"])

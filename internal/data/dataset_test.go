@@ -88,6 +88,9 @@ func TestDatasetCatalogReportsDeclaredSchemaAndObservedShapes(t *testing.T) {
 	if len(dataset.NaturalKey) != 3 || dataset.NaturalKey[0] != "instrument_id" {
 		t.Fatalf("natural key = %v, want the stored identity columns", dataset.NaturalKey)
 	}
+	if len(dataset.Frequencies) != 1 || dataset.Frequencies[0] != "daily" {
+		t.Fatalf("frequencies = %v, want the frequency the batch was ingested at", dataset.Frequencies)
+	}
 	if dataset.Coverage == nil {
 		t.Fatal("coverage must be reported for a dataset with rows")
 	}
@@ -117,6 +120,31 @@ func TestDatasetCatalogReportsDeclaredSchemaAndObservedShapes(t *testing.T) {
 	}
 	if len(dataset.QualityIssues) != 1 || dataset.QualityIssues[0].Code != "quality.unit_undeclared" {
 		t.Fatalf("quality issues = %+v, want the batch's finding", dataset.QualityIssues)
+	}
+}
+
+// TestDatasetCatalogListsEveryIngestedFrequency proves the frequency list is
+// what a reader can actually find, not just the newest declaration: a dataset
+// ingested at two frequencies reports both, so a factor reading a frequency
+// outside the list is told instead of silently reading nothing.
+func TestDatasetCatalogListsEveryIngestedFrequency(t *testing.T) {
+	store, _ := newTestStore(t)
+	appendDeclaredBatch(t, store, declaredBar())
+	if _, err := store.Append(context.Background(), ports.BatchInput{
+		JobID:        "job-2",
+		Dataset:      "bar",
+		Frequency:    "weekly",
+		Observations: []domain.Observation{datasetObservation("bar", "INST_B")},
+	}); err != nil {
+		t.Fatalf("append weekly batch: %v", err)
+	}
+
+	dataset, err := store.GetDataset(context.Background(), "bar")
+	if err != nil {
+		t.Fatalf("get dataset: %v", err)
+	}
+	if len(dataset.Frequencies) != 2 || dataset.Frequencies[0] != "daily" || dataset.Frequencies[1] != "weekly" {
+		t.Fatalf("frequencies = %v, want both ingested frequencies in order", dataset.Frequencies)
 	}
 }
 

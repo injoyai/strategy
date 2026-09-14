@@ -27,6 +27,10 @@ const (
 	// input declares, so the values would be used under a unit they do not
 	// carry.
 	codeUnitMismatch = "screenrun.unit_mismatch"
+	// codeFrequencyMismatch: the factor input reads a frequency the dataset's
+	// rows were not ingested at, so a run would read nothing and report every
+	// member as missing instead of saying why.
+	codeFrequencyMismatch = "screenrun.frequency_mismatch"
 	// CodePreflightFailed: submission re-runs resolution and refuses to compute
 	// when any error-severity finding came out of it. The HTTP mapping needs
 	// the literal, so it is exported rather than repeated.

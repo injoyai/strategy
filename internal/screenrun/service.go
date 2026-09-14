@@ -380,16 +380,17 @@ func (s *Service) checkFieldBinding(ctx context.Context, binding screening.Input
 	return kind, Coverage{BindingID: binding.BindingID, Available: true}, nil, nil
 }
 
-// checkFactorInputUnits verifies every input a factor declares against the
-// dataset catalog: the dataset and field must be known, and the field's
-// declared unit must be exactly the unit the factor contract expects. Units are
-// compared by equality — the same rule the expression unit checker applies — so
-// "price" is not "shares" even though both are numbers.
+// checkFactorInputs verifies every input a factor declares against the dataset
+// catalog: the dataset and field must be known, the rows must have been
+// ingested at the frequency the input reads, and the field's declared unit must
+// be exactly the unit the factor contract expects. Units are compared by
+// equality — the same rule the expression unit checker applies — so "price" is
+// not "shares" even though both are numbers.
 //
 // An undeclared unit is a finding, not a pass: the ingestion that never declared
 // the field's unit leaves the contract unverifiable, and treating that as
 // compatible would silently use values under a unit nobody stated.
-func (s *Service) checkFactorInputUnits(ctx context.Context, bindingID domain.ID, spec *factor.Spec) ([]domain.Issue, error) {
+func (s *Service) checkFactorInputs(ctx context.Context, bindingID domain.ID, spec *factor.Spec) ([]domain.Issue, error) {
 	var issues []domain.Issue
 	for _, input := range spec.Inputs {
 		dataset, err := s.data.GetDataset(ctx, domain.ID(input.Dataset))
@@ -407,6 +408,13 @@ func (s *Service) checkFactorInputUnits(ctx context.Context, bindingID domain.ID
 				fmt.Sprintf("factor input %s reads %s/%s, which the dataset does not have", input.Name, input.Dataset, input.Field)))
 			continue
 		}
+		if !containsString(dataset.Frequencies, input.Frequency) {
+			// A frequency with no rows is not a value to be missing per member:
+			// every member would come back empty and the reason would be lost.
+			issues = append(issues, issueFor(bindingID, codeFrequencyMismatch,
+				fmt.Sprintf("factor input %s reads %s at frequency %q, but its rows were ingested at %s",
+					input.Name, input.Dataset, input.Frequency, strings.Join(dataset.Frequencies, ", "))))
+		}
 		switch {
 		case field.Unit == "":
 			issues = append(issues, issueFor(bindingID, codeUnitUndeclared,
@@ -419,6 +427,15 @@ func (s *Service) checkFactorInputUnits(ctx context.Context, bindingID domain.ID
 		}
 	}
 	return issues, nil
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
 
 // datasetField finds one declared field of a dataset by name. The catalog
@@ -469,17 +486,18 @@ func (s *Service) checkFactorBinding(
 			issues:   []domain.Issue{issueFor(binding.BindingID, domain.ErrorCode(err), err.Error())},
 		}, nil
 	}
-	// The unit contract is checked before anything is computed: a factor input
-	// bound to a field whose declared unit is missing or different would silently
-	// treat the values as something they are not.
-	unitIssues, err := s.checkFactorInputUnits(ctx, binding.BindingID, spec)
+	// The input contract is checked before anything is computed: a factor input
+	// bound to a dataset the catalog does not have, a frequency its rows were not
+	// ingested at, or a field whose declared unit is missing or different would
+	// silently treat the values as something they are not.
+	inputIssues, err := s.checkFactorInputs(ctx, binding.BindingID, spec)
 	if err != nil {
 		return bindingResult{}, err
 	}
-	if len(unitIssues) > 0 {
+	if len(inputIssues) > 0 {
 		return bindingResult{
-			coverage: unavailable(binding.BindingID, unitIssues[0].Code),
-			issues:   unitIssues,
+			coverage: unavailable(binding.BindingID, inputIssues[0].Code),
+			issues:   inputIssues,
 		}, nil
 	}
 	windowFrom, dates, problem, err := deriveWindow(ctx, view, members, spec, params)

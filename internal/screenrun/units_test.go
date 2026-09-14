@@ -21,15 +21,23 @@ import (
 // checker applies — and blocks a mismatch or an undeclared unit instead of
 // assuming the values are compatible.
 
-// unitSpec is a factor reading one bar field in one unit.
+// unitSpec is a factor reading one bar field in one unit, at the frequency its
+// rows were ingested at.
 func unitSpec(unit string) *factor.Spec {
+	return unitSpecAt("daily", unit)
+}
+
+// unitSpecAt reads at an explicit frequency, so a mismatch between what the
+// factor asks for and what the dataset's rows were ingested at is a case of its
+// own.
+func unitSpecAt(frequency, unit string) *factor.Spec {
 	return &factor.Spec{
 		ID:      "unit-probe",
 		Version: "1.0.0",
 		Title:   "Unit probe",
 		Kind:    factor.KindBuiltin,
 		Inputs: []factor.Input{{
-			Name: "close", Dataset: "bar", Field: "close", Frequency: "daily",
+			Name: "close", Dataset: "bar", Field: "close", Frequency: frequency,
 			Lookback: 1, Unit: unit, PIT: true,
 		}},
 		OutputUnit:   "ratio",
@@ -88,7 +96,7 @@ func unitService(t *testing.T, store *data.Store) *Service {
 	return service
 }
 
-func TestFactorInputUnitsMustBeDeclaredAndMatch(t *testing.T) {
+func TestFactorInputContractIsVerifiedAgainstTheCatalog(t *testing.T) {
 	cases := []struct {
 		name        string
 		declaration *domain.DatasetDeclaration
@@ -105,6 +113,12 @@ func TestFactorInputUnitsMustBeDeclaredAndMatch(t *testing.T) {
 			declaration: declaredUnits("shares"),
 			spec:        unitSpec("price"),
 			wantCode:    codeUnitMismatch,
+		},
+		{
+			name:        "the factor reads a frequency the rows were not ingested at",
+			declaration: declaredUnits("price"),
+			spec:        unitSpecAt("weekly", "price"),
+			wantCode:    codeFrequencyMismatch,
 		},
 		{
 			name:        "the dataset never declared the field's unit",
@@ -145,9 +159,9 @@ func TestFactorInputUnitsMustBeDeclaredAndMatch(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			service := unitService(t, catalogStore(t, tc.declaration))
-			issues, err := service.checkFactorInputUnits(context.Background(), "mom", tc.spec)
+			issues, err := service.checkFactorInputs(context.Background(), "mom", tc.spec)
 			if err != nil {
-				t.Fatalf("check units: %v", err)
+				t.Fatalf("check inputs: %v", err)
 			}
 			if tc.wantCode == "" {
 				if len(issues) != 0 {
@@ -236,19 +250,19 @@ func TestPreflightAcceptsAMatchingUnit(t *testing.T) {
 	}
 }
 
-// TestFactorBindingWithNoInputsSkipsTheUnitCheck keeps the check honest about
-// what it can verify: a factor that reads no dataset has no unit contract to
+// TestFactorBindingWithNoInputsSkipsTheInputCheck keeps the check honest about
+// what it can verify: a factor that reads no dataset has no input contract to
 // compare, so preflight must not invent a finding for it.
-func TestFactorBindingWithNoInputsSkipsTheUnitCheck(t *testing.T) {
+func TestFactorBindingWithNoInputsSkipsTheInputCheck(t *testing.T) {
 	service := unitService(t, catalogStore(t, nil))
 	spec := &factor.Spec{
 		ID: "constant", Version: "1.0.0", Title: "Constant", Kind: factor.KindBuiltin,
 		OutputUnit: "ratio", AssetClasses: []string{"equity"},
 		Compute: func(*factor.ComputeContext) (domain.Decimal, string, error) { return domain.Decimal("1"), "", nil },
 	}
-	issues, err := service.checkFactorInputUnits(context.Background(), "const", spec)
+	issues, err := service.checkFactorInputs(context.Background(), "const", spec)
 	if err != nil {
-		t.Fatalf("check units: %v", err)
+		t.Fatalf("check inputs: %v", err)
 	}
 	if len(issues) != 0 {
 		t.Fatalf("issues = %+v, want none for a factor that declares no inputs", issues)
