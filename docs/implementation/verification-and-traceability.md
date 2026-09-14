@@ -108,7 +108,7 @@
 | SC-AC-09 | `ScreenOutput_UsesFrozenFullScope`：保存池用完整入选，导出 scope 与冻结结果一致，不取当前页 |
 | SC-AC-10 | 选股侧已可执行（回测侧待 S4）：`screenrun` 拒绝 `Universe.source.as_of > req.as_of` 的名单用法（error 级 `screenrun.universe_selection_after_as_of`，422），quality limits 随 `source.quality_limits` 保留 |
 | SC-AC-11 | 浏览器：无手写 JSON 完成成功/预检失败/断线/键盘/窄屏，失败保留输入，空结果可解释 |
-| SC-AC-12 | `ScreenAuthAndCursor_WorkspaceBound`：越权 run/explanation/artifact 与过期/失配 cursor 按统一契约拒绝 |
+| SC-AC-12 | `TestScreenRunSurfaceAnswersOnlyForItsOwnResult`：未知 run 404、不属于该 run 的标的不作答、另一 run 的游标 400、过期游标 422（同页游标在自己清单上仍 200，作为正向对照）。**工作区维度暂不可执行**——部署只有一个 workspace，故只覆盖实际存在的身份（run + 冻结结果） |
 
 ### 3.2 历史复盘验收可执行化
 
