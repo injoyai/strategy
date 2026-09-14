@@ -145,6 +145,7 @@ OR:  任一 true => true；全 false => false；其他 => unknown
 - **频率核对已交付**：数据集目录新增 `Dataset.frequencies`——该 dataset 的 batch 实际摄取过的频率（排序去重，契约 `Dataset.frequencies` 必需）。`Append` 把同一频率写在 batch 与它写入的每一行观测上，所以批级列表恰好回答“按这个频率读能得到什么”；`checkFactorInputs` 要求因子输入的 `Frequency` 在列表内，否则 `screenrun.frequency_mismatch`（error 级）。这样“读一个没有数据的频率”在预检就说清楚，而不是让每个成员都变成缺失值。
 - 预检量的口径：`estimated_rows` = 母池成员数（只有池解析成功就有值，字段-only 方案也有），`estimated_scan_rows` = 成员数 × 推导出的窗口内日期数，**只在存在因子窗口时有值**（字段绑定读的是各成员最新值，不构成日期窗口扫描，不臆造估算）。预检不预演评分分位。
 - **部分成员不可计算时继续运行（已按决策实现）**：因子引擎新增**可选**的宽容模式——`factor.RunRequest.TolerateMemberGaps`，配合 `RunRequest.Tolerates(code)` 作为“什么被容忍”的唯一定义（目前只容忍 `ProblemInsufficientHistory`，即某成员在窗口内点数不够；PIT 无法核验、数据集/字段缺失、参数非法等仍致命）。选股的 preflight 与 compute 都开启该模式，因此因子绑定在“部分成员算不出”时是 `Available: true` + warning，这些成员在 `Execute` 里成为缺失值并落入既有阶段：条件用途 → `condition_unknown`，排名用途 → `rank_insufficient`（0 入选时给出 `empty_reason`）。缓存键加入该标志，避免严格调用方被喂一份“含缺失成员”的结果。因子运行/分析保持严格默认。可见后果：研究台预检面板在“通过但有提示”时列出提示（不再只显示成功）。
+- **`source_run_id` 必须指向存在的 Run**：它是调用方对“本次运行来自哪次运行”的断言，随运行一起发布并作为证据回读，所以 `resolve` 要求它在同一工作区内存在，否则按引用不存在处理（404 `resource.not_found`）。这是请求错误而非 finding——没有来源可查的请求无法被评估；反过来说，让一个指向不存在 Run 的重跑落库，等于把无法核验的来源当成事实。
 
 ### S2-02 元数据与结果
 
