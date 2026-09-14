@@ -17,6 +17,12 @@ export interface CreateApiClientOptions {
   baseUrl?: string;
   /** Bearer token for auth.mode=bearer deployments; omit in local mode. */
   bearerToken?: string;
+  /**
+   * Fetch implementation to use. Defaults to globalThis.fetch; injected so a
+   * test can drive the client without patching a global. Note that Node's
+   * Request rejects relative URLs, so tests must also pass an absolute baseUrl.
+   */
+  fetch?: typeof globalThis.fetch;
 }
 
 export type ApiClient = ReturnType<typeof createApiClient>;
@@ -29,8 +35,8 @@ export function newIdempotencyKey(): string {
 }
 
 export function createApiClient(options: CreateApiClientOptions = {}) {
-  const { baseUrl = DEFAULT_API_BASE_URL, bearerToken } = options;
-  const client = createClient<paths>({ baseUrl });
+  const { baseUrl = DEFAULT_API_BASE_URL, bearerToken, fetch: fetchImpl } = options;
+  const client = createClient<paths>(fetchImpl ? { baseUrl, fetch: fetchImpl } : { baseUrl });
 
   const headers: Middleware = {
     onRequest({ request }) {

@@ -3,23 +3,27 @@ import { useEffect } from "react";
 import { NavLink, Navigate, Outlet, Route, Routes, useLocation } from "react-router";
 import { ConnectionsPage } from "./pages/ConnectionsPage";
 import { DataPage } from "./pages/DataPage";
+import { FactorsPage } from "./pages/FactorsPage";
 import { JobsPage } from "./pages/JobsPage";
+import { UniversesPage } from "./pages/UniversesPage";
 
 const navItems = [
-  { to: "/data", label: "数据中心", section: "研究输入" },
-  { to: "/connections", label: "数据源", section: "研究输入" },
-  { to: "/jobs", label: "任务中心", section: "运行状态" },
+  { to: "/data", label: "数据中心", glyph: "◫", section: "研究输入" },
+  { to: "/universes", label: "标的池", glyph: "⊞", section: "研究输入" },
+  { to: "/factors", label: "因子库", glyph: "∿", section: "研究输入" },
+  { to: "/connections", label: "数据源", glyph: "⌁", section: "研究输入" },
+  { to: "/jobs", label: "任务中心", glyph: "◌", section: "运行状态" },
 ];
 
 const plannedItems = [
-  { label: "标的池", gate: "M1" },
-  { label: "因子库", gate: "M1" },
   { label: "策略工作台", gate: "M2" },
   { label: "历史复盘", gate: "M2R" },
 ];
 
 const titles: Record<string, string> = {
   "/data": "数据中心",
+  "/universes": "标的池",
+  "/factors": "因子库",
   "/connections": "数据源",
   "/jobs": "任务中心",
 };
@@ -32,14 +36,14 @@ export function AppShell() {
           <span className="brand-mark" aria-hidden="true">∷</span>
           <div>
             <strong>研究台</strong>
-            <span>RESEARCH / M0</span>
+            <span>RESEARCH / M1</span>
           </div>
         </div>
         <nav aria-label="工作区">
           <p className="nav-group-label">工作区</p>
           {navItems.map((item) => (
             <NavLink key={item.to} to={item.to} className={({ isActive }) => `nav-link${isActive ? " active" : ""}`}>
-              <span className="nav-glyph" aria-hidden="true">{item.to === "/data" ? "◫" : item.to === "/connections" ? "⌁" : "◌"}</span>
+              <span className="nav-glyph" aria-hidden="true">{item.glyph}</span>
               <span>{item.label}</span>
             </NavLink>
           ))}
@@ -65,7 +69,7 @@ export function AppShell() {
           <div className="header-context">
             <span className="header-kicker">STRATEGY RESEARCH WORKSPACE</span>
             <span className="header-divider" aria-hidden="true" />
-            <span>M0 · 数据证据与任务</span>
+            <span>M1 · 数据证据、标的池与因子</span>
           </div>
           <div className="header-status">
             <span className="status-led neutral" aria-hidden="true" />
@@ -77,6 +81,9 @@ export function AppShell() {
             <Route element={<RouteFrame />}>
               <Route path="/" element={<Navigate to="/data" replace />} />
               <Route path="/data" element={<DataPage />} />
+              <Route path="/universes" element={<UniversesPage />} />
+              <Route path="/factors" element={<FactorsPage />} />
+              <Route path="/factors/:id" element={<FactorsPage />} />
               <Route path="/connections" element={<ConnectionsPage />} />
               <Route path="/jobs" element={<JobsPage />} />
               <Route path="*" element={<NotFoundPage />} />
@@ -84,8 +91,8 @@ export function AppShell() {
           </Routes>
         </main>
         <footer className="app-footer">
-          <span>Research platform · M0 foundation</span>
-          <span className="mono">PIT / immutable snapshots / durable jobs</span>
+          <span>Research platform · M1 data, universes and factors</span>
+          <span className="mono">PIT / immutable snapshots / registered factors</span>
         </footer>
       </Layout>
     </Layout>
@@ -95,7 +102,9 @@ export function AppShell() {
 function RouteFrame() {
   const location = useLocation();
   useEffect(() => {
-    document.title = `${titles[location.pathname] ?? "页面未找到"} — 策略研究工作台`;
+    // Detail routes share the section title (/factors/:id falls back to /factors).
+    const section = `/${location.pathname.split("/")[1] ?? ""}`;
+    document.title = `${titles[location.pathname] ?? titles[section] ?? "页面未找到"} — 策略研究工作台`;
   }, [location.pathname]);
   return <Outlet />;
 }

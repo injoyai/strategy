@@ -182,3 +182,79 @@ export function useRetryJob() {
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["jobs"] }),
   });
 }
+
+export type Universe = components["schemas"]["Universe"];
+export type FactorCatalogEntry = components["schemas"]["Factor"];
+
+export function useUniverses(q: string) {
+  return useInfiniteQuery({
+    queryKey: ["universes", q],
+    initialPageParam: undefined as string | undefined,
+    queryFn: ({ pageParam }) => unwrap(api.GET("/universes", { params: { query: pageQuery(q, pageParam) } })),
+    getNextPageParam: (page) => page.next_cursor ?? undefined,
+  });
+}
+
+export function useUniverse(id: string | undefined) {
+  return useQuery({
+    queryKey: ["universe", id],
+    enabled: Boolean(id),
+    queryFn: () => unwrap(api.GET("/universes/{id}", { params: { path: { id: id! } } })),
+  });
+}
+
+// Creation is not idempotent server-side (every save mints a new version);
+// the key only makes the HTTP replay of one click safe.
+export function useCreateUniverse() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: components["schemas"]["UniverseCreate"]) =>
+      unwrap(api.POST("/universes", { params: { header: { "Idempotency-Key": newIdempotencyKey() } }, body })),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["universes"] }),
+  });
+}
+
+export function useResolveUniverse() {
+  return useMutation({
+    mutationFn: (input: { id: string; body: components["schemas"]["UniverseResolve"] }) =>
+      unwrap(api.POST("/universes/{id}/resolve", { params: { path: { id: input.id } }, body: input.body })),
+  });
+}
+
+export function useFactors(q: string) {
+  return useInfiniteQuery({
+    queryKey: ["factors", q],
+    initialPageParam: undefined as string | undefined,
+    queryFn: ({ pageParam }) => unwrap(api.GET("/factors", { params: { query: pageQuery(q, pageParam) } })),
+    getNextPageParam: (page) => page.next_cursor ?? undefined,
+  });
+}
+
+export function useFactor(ref: components["schemas"]["VersionRef"] | undefined) {
+  const id = ref?.id;
+  const version = ref?.version;
+  return useQuery({
+    queryKey: ["factor", id, version],
+    enabled: Boolean(id && version),
+    queryFn: () => unwrap(api.GET("/factors/{id}", { params: { path: { id: id! }, query: { version: version! } } })),
+  });
+}
+
+export function usePreflightFactorRun() {
+  return useMutation({
+    mutationFn: (body: components["schemas"]["FactorRunRequest"]) => unwrap(api.POST("/factor-runs/preflight", { body })),
+  });
+}
+
+export function useRunFactor() {
+  return useMutation({
+    mutationFn: (body: components["schemas"]["FactorRunRequest"]) => unwrap(api.POST("/factor-runs", { body })),
+  });
+}
+
+export function useRunFactorAnalysis() {
+  return useMutation({
+    mutationFn: (body: components["schemas"]["FactorAnalysisCreate"]) =>
+      unwrap(api.POST("/factor-analyses", { params: { header: { "Idempotency-Key": newIdempotencyKey() } }, body })),
+  });
+}

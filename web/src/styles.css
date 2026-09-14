@@ -91,7 +91,7 @@ h3 { margin-bottom: var(--space-2); font-size: 15px; font-weight: 650; }
 h4 { margin-bottom: var(--space-2); font-size: 13px; font-weight: 650; }
 .page-description { max-width: 720px; margin-bottom: 0; color: var(--color-secondary); font-size: 14px; line-height: 1.65; }
 .section-panel { min-width: 0; padding: var(--space-5); border: 1px solid var(--color-border); border-radius: var(--radius-panel); background: var(--color-surface); }
-.section-heading, .subsection-heading, .table-toolbar, .provider-card-heading, .job-progress-label, .job-detail-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-4); }
+.section-heading, .subsection-heading, .table-toolbar, .provider-card-heading, .job-progress-label, .job-detail-head, .detail-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-4); }
 .section-heading { margin-bottom: var(--space-4); }
 .section-heading p { max-width: 720px; margin-bottom: 0; color: var(--color-secondary); font-size: 13px; line-height: 1.55; }
 .section-action { flex: 0 0 auto; }
@@ -183,6 +183,15 @@ h4 { margin-bottom: var(--space-2); font-size: 13px; font-weight: 650; }
 .detail-grid > div { min-width: 0; padding: var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-control); background: var(--color-surface-soft); }
 .detail-grid dt { margin-bottom: var(--space-2); color: var(--color-secondary); font-size: 11px; }
 .detail-grid dd { margin: 0; overflow-wrap: anywhere; font-size: 12px; }
+.detail-panel { display: flex; flex-direction: column; gap: var(--space-3); }
+.detail-heading { align-items: center; gap: var(--space-3); }
+.detail-heading small { margin-top: 3px; color: var(--color-secondary); font-size: 10px; }
+.truncate-cell { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.resolve-result, .preflight-result, .frame-result, .analysis-result { display: flex; flex-direction: column; gap: var(--space-3); }
+.resolve-result { padding: var(--space-4); border: 1px solid var(--color-border); border-radius: var(--radius-control); background: var(--color-surface-soft); font-size: 12px; }
+.resolve-result p { margin: 0; }
+.chip-list { display: flex; flex-wrap: wrap; gap: var(--space-2); margin: 0; padding: 0; list-style: none; }
+.chip-list li { padding: 2px 8px; border: 1px solid var(--color-border); border-radius: 4px; background: var(--color-surface); font-size: 11px; }
 .job-error { padding: var(--space-4); border-left: 3px solid var(--color-danger); background: var(--color-danger-soft); }
 .job-error p { margin-bottom: var(--space-2); font-size: 13px; }
 .job-error > .mono { color: var(--color-danger); font-size: 11px; }

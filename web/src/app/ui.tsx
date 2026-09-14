@@ -114,6 +114,10 @@ export function SearchField({ value, onChange, placeholder }: {
   );
 }
 
+export function Field({ label, id, help, children }: { label: string; id: string; help?: string; children: ReactNode }) {
+  return <div className="field"><label htmlFor={id}>{label}</label>{children}{help ? <small id={`${id}-help`}>{help}</small> : null}</div>;
+}
+
 export function QueryLoading({ label = "正在读取服务端数据" }: { label?: string }) {
   return (
     <div className="query-state" role="status" aria-live="polite">
