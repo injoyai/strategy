@@ -135,6 +135,14 @@ OR:  任一 true => true；全 false => false；其他 => unknown
 
 缓存键包含 screener/config hash、bindings、snapshot hash、universe、as_of/timezone、strict PIT、required value policy、engine/scoring version。不得将最终日期名单缓存给过去时点。
 
+已交付（`internal/screenrun`）：
+
+- `Service.Preflight` / `Service.Execute` 共用一次解析：拆包 screener 版本、校验 universe 版本 pin 与其 definition hash 一致、校验 snapshot 严格性、开 PIT view 解析母池、逐绑定解析（factor 走窗口推导 + FactorEngine 预检，field 走数据集目录）、以解析出的输入目录校验规则。
+- 因子窗口**由数据推导**而非把“回看期数”换算成时间跨度：取 `RecentEventTimes` 的第 N 新日期作为半开区间起点；快照历史不足时报告 `insufficient_history`，不静默缩短窗口。
+- `Execute` 在有 error 级 finding 时拒绝计算（`screenrun.preflight_failed` → 422），因此不会发布“看起来权威”的结果。
+- 提交（`POST /screen-runs`）重新预检，24h 幂等键必填，202 + `Location: /api/v1/jobs/{job_id}`；`screenrun.Request` 是唯一的冻结输入形状（`FrozenConfigOf` / `RequestOfFrozen`）。
+- 未完成：**单位可比性**没有钩子（引擎比 kind，字面量不带 unit，目录里的 unit 无消费方，见 §10 SC-AC-01）；预检不预演评分分位，故 `estimated_rows` 只是母池规模。
+
 ### S2-02 元数据与结果
 
 迁移编号按实施时现有序列分配，不在本文预占。最小表：
@@ -144,7 +152,6 @@ OR:  任一 true => true；全 false => false；其他 => unknown
 | screener_versions | workspace + id/version 唯一；parent、canonical definition、schema/config hash |
 | screen_runs | run/job、冻结 request、source_run、engine/policy、终态与 result refs |
 | screen_result_rows | run + instrument 唯一；selected、rank、score、稳定查询列与 row artifact ref |
-| screen_run_artifacts | run + kind 唯一；summary/rows/explanations/export 引用 |
 
 大解释树和完整矩阵进入 Artifact，元数据保存索引与摘要。rows 默认正式 rank + instrument_id 稳定分页；排除项 rank=null 并按明确阶段/稳定键排序。游标绑定 workspace、run、冻结结果 hash、filter/search/sort。
 
@@ -157,6 +164,17 @@ Summary 计数互斥且守恒：
 ```
 
 单标的可以记录多个失败节点，但汇总只能进入一个阶段。
+
+已交付（迁移 `00009_screen_runs.sql`、`internal/data/screenrun.go`、`internal/screenrun/handler.go`）：
+
+- **两表而非三表**：`screen_runs`（冻结 request + config hash + engine/scoring version + snapshot hash + summary + result hash + columns + artifact ids + published_at）与 `screen_result_rows`（run + instrument 唯一，ordinal 为引擎规范序，selected/stage 供过滤，`row_json` 为权威证据）。artifact 引用按 `jobs.result_refs` 的先例存为 `screen_runs` 上的 JSON 列，因此不设 `screen_run_artifacts` 表。
+- **解释就在行证据里**：节点的 truth/input/threshold 与评分分量随 `row_json` 一起冻结，`GET .../explanations/{instrument_id}` 直接读该行，不需要第二份 artifact；`engine_version` 记录产生它的流水线版本。
+- **结果不可变且原子发布**：`PublishScreenRun` 在**一个事务**内校验守恒、写 summary/result hash/artifact ids/published_at 并插入全部行；`WHERE published_at IS NULL` 让第二次发布成为 409 `resource.conflict`，崩溃只会留下未发布记录。发布前读取 rows/explanations 返回 409 `screenrun.result_not_ready`，`GET /screen-runs/{id}` 仍返回 200 且 `summary: null`。
+- **run 行在 worker 开始执行时创建**：queued job 不会暴露尚未开始的 run；重试（新 Job）产生新 run 行，旧行保持未发布，符合“重试不覆盖”。
+- **分页**：`ordinal` 键集顺序（隐藏 rank ⇒ 排除行天然排在最后）；游标用 scope 绑定 run + 冻结 result hash + state 过滤，换用即 400，过期 422 `pagination.cursor_expired`。
+- **规范结果 artifact**：summary + columns + 全部行以规范 JSON 经内容寻址写入 artifact store，其 checksum 即 `result_hash`，导出与展示可据此核对一致。
+- **列描述**：`columns` 由冻结行自身推导（观测到的 kind ⇒ Field.type，缺失该列的任一行 ⇒ nullable），从不全的列保持 `unknown`，与数据集目录同一口径。
+- 未交付：S2-03 的静态池保存与导出端点。
 
 ### S2-03 静态池与导出
 
@@ -185,8 +203,8 @@ Summary 计数互斥且守恒：
 | S1-02 | 输入能力目录 | field/factor schema、Snapshot 不可用说明 |
 | S1-03 | 条件树、三值逻辑与解释 | 真值表、类型/单位、unknown/NOT 属性测试（`internal/screening/truth_test.go` 的 Kleene 表、SC-AC-02 负小数比较、范围/集合全覆盖） |
 | S1-04 | 稳定排序、百分位评分与 top_n | 单元素/同值/分片/分页 oracle（`ranking_test.go` 的 m=1/全等→0.5、平局平均秩、shuffle oracle；`engine_test.go` 守恒/fail_run/空因） |
-| S2-01 | Preflight、Engine 与 Job handler | PIT、空母池、取消/恢复/fencing（preflight 已交付：`/screen-runs/preflight` + `internal/screenrun`，覆盖解析/绑定/结构与逐绑定 coverage；引擎计算、Job handler 与 PIT/窗口级检查待做） |
-| S2-02 | 版本/Run/结果存储与查询 | 迁移、原子发布、Summary 守恒、游标（版本部分已交付：`screener_versions` + `/screeners` CRUD + `GET /screeners/{id}?version=`） |
+| S2-01 | Preflight、Engine 与 Job handler | PIT、空母池、取消/恢复/fencing（已交付：`/screen-runs/preflight` 与 `POST /screen-runs`(202+Job+幂等键)、`internal/screenrun` 的解析/绑定/coverage 与 `Execute`、数据驱动的因子窗口推导、`screenrun.Handlers` 的 `screen.run` job kind（`internal/screenrun/handler_test.go` 走真实 jobs.Loop））；未完成：单位可比性（SC-AC-01） |
+| S2-02 | 版本/Run/结果存储与查询 | 迁移、原子发布、Summary 守恒、游标（已交付：`screener_versions` + `/screeners` CRUD + `GET /screeners/{id}?version=`，以及 `00009_screen_runs.sql`、`/screen-runs` 清单/详情/rows/explanations、发布前 409 `screenrun.result_not_ready`、scope 绑定的行游标、守恒在发布事务内复核） |
 | S2-03 | 静态池与导出 | 来源时点、完整 scope、许可与 CSV 安全 |
 | S3 | 四个页面的完整路径 | 成功/失败/断线/键盘/窄视口 |
 | S4 | 回测时点校验与 Replay 引用检查 | 未来名单/跨会话拒绝 |
