@@ -81,6 +81,12 @@ Session 不存在 paused/running 长租约。用户等待时停在 `awaiting_act
 
 会话事件是永久业务日志，JobEvent 只是有窗口的执行状态。二者 sequence、保留和 API 不混用。
 
+已交付（`internal/replay`，纯包：无 DB/网络/不受控时钟）：
+
+- 状态机与命令原语：`Init`/`ApplyOrder`/`OpenAdvance`/`CommitAdvance`/`OpenClose`/`CommitClose`/`Fail`，`expected_revision` 门、`awaiting_action` 之外拒单、决策时点只由服务端 `DecisionClock` 给出。
+- **`Config` 与契约的 ReplayConfig 逐字段对齐**（2026-09-14 修正）：原来少了契约必需的 `cash_policy`/`end_policy`/`order_types`，却带了一个契约里不存在的 `decision_policy`。现在四个 policy 字段（`day_end_policy`/`cash_policy`/`end_policy`/`order_types`）按契约作为**显式校验值**：缺失、空串、空白项、重复项一律 `replay.policy_invalid`，负数 `warmup_days` 为 `replay.range_invalid`——它们分别决定日终口径、资金何时可用、会话结束时未成交单怎么办、允许提交哪些订单类型，都涉及钱，因此不允许用默认值补。`order_types` **按集合进哈希**（同集合不同顺序同哈希，改动集合必换哈希），`cash_policy`/`end_policy` 同样进哈希。哪些取值合法由被引用的版本化模型声明（受门禁）。
+- 读侧时点隔离（`scope.go`）见 §5。
+
 ## 5. RP-02 历史数据与选股隔离
 
 ### 5.1 服务端可见性
