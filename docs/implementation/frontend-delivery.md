@@ -31,6 +31,14 @@ feature 可以引用共享组件与 generated API，不能跨 feature 导入私�
 
 未交付路由显示明确的阶段和依赖，不放静态假数据或可点击的无效主操作。
 
+M1S 四页已交付（`web/src/app/pages/ScreenersPage.tsx`、`ScreenerDetailPage.tsx`、`ScreenRunPage.tsx` + `web/src/app/screener-draft.ts`）：
+
+- `/screeners` 列出不可变修订（服务端分页 + 搜索）并给出最近运行（可按 Job 状态过滤）；`/screeners/new` 与 `?from=<id>&fromVersion=<v>` 是同一编辑器，后者以既有修订为基底并带 `parent_id`，文案为“基于此版本新建”。
+- 编辑器按 §8.1 分区编辑：输入绑定（字段/因子两种分支、因子参数表）、条件树（all/any/not/compare/range/set/missing，全部用按钮与下拉编辑，无拖拽）、排名/评分（互斥；权重之和必须为 1，否则拒绝）、数量与展示列。草稿到契约载荷的转换是纯函数（`screener-draft.ts` 的 `buildScreenerCreate`），拒绝时同时给出消息与聚焦目标，所以键盘路径与鼠标路径一致；该转换由 `screener-draft.test.ts` 直接测试，不需要渲染表单。
+- `/screeners/:id?version=` 只读展示冻结规则（条件树与评分分量的可读渲染），并承载预检/提交运行表单：快照、母池（按所选快照过滤，并提示 `universe_ref.version` 必须是该版本的 definition hash）、as_of、时区、严格 PIT、必填值策略；提交 202 后显示任务链接并说明结果在发布前不可读。
+- `/screen-runs/:id` 展示冻结配置与各哈希、Job 链接、互斥汇总（含空结果原因）、结果行（服务端分页 + `state` 过滤；列头显示声明单位与是否可缺失，缺失值给出原因而不是 0）、逐标的解释（节点 truth/阈值/缺失原因 + 评分分量），以及“保存为静态标的池”（只提交名称、说明使用完整入选集合，空入选不提供操作）。
+- 未交付：导出端点（受 SCREEN-DEC-02「可导出数据许可」门禁约束）；浏览器端到端报告与窄视口截图待补。
+
 ## 3. API 与状态所有权
 
 ### 3.1 三类状态
